@@ -1,0 +1,58 @@
+import type { GfwrQuery } from "./types";
+
+export const GFWR_QUERIES: GfwrQuery[] = [
+  {
+    id: "fishing-events",
+    name: "Fishing Events",
+    category: "Events",
+    endpoint: "/v3/events",
+    datasets: ["public-global-fishing-events:latest"],
+    params: { types: "FISHING", region: "Indonesia EEZ" },
+    description: "Aktivitas penangkapan ikan terdeteksi via AIS.",
+  },
+  {
+    id: "encounter-events",
+    name: "Encounter Events",
+    category: "Events",
+    endpoint: "/v3/events",
+    datasets: ["public-global-encounters-events:latest"],
+    params: { types: "ENCOUNTER" },
+    description: "Dua kapal berdekatan dalam waktu lama (kemungkinan transhipment).",
+  },
+  {
+    id: "loitering-events",
+    name: "Loitering Events",
+    category: "Events",
+    endpoint: "/v3/events",
+    datasets: ["public-global-loitering-events:latest"],
+    params: { types: "LOITERING" },
+    description: "Kapal cargo/reefer berhenti panjang di laut lepas.",
+  },
+  {
+    id: "vessel-search",
+    name: "Vessel Search",
+    category: "Vessels",
+    endpoint: "/v3/vessels/search",
+    datasets: ["public-global-vessel-identity:latest"],
+    params: { query: "MMSI / IMO / Name" },
+    description: "Cari kapal berdasarkan identitas.",
+  },
+  {
+    id: "vessel-tracks",
+    name: "Vessel Tracks",
+    category: "Tracks",
+    endpoint: "/v3/vessels/{vessel_id}/tracks",
+    datasets: ["public-global-fishing-tracks:latest"],
+    params: { start_date: "YYYY-MM-DD", end_date: "YYYY-MM-DD" },
+    description: "Trajektori posisi kapal pada rentang tanggal.",
+  },
+  {
+    id: "port-visits",
+    name: "Port Visits",
+    category: "Events",
+    endpoint: "/v3/events",
+    datasets: ["public-global-port-visits-events:latest"],
+    params: { types: "PORT_VISIT" },
+    description: "Kunjungan kapal ke pelabuhan.",
+  },
+];

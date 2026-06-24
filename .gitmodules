@@ -1,0 +1,3 @@
+[submodule "Inference"]
+	path = Inference
+	url = https://github.com/ngenss12/InferenceAPI.git

@@ -1,0 +1,1906 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Samudra Aya — Pemantauan Kapal Indonesia</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root {
+      --bg:          #0a1a2f;
+      --surface:     #0f2340;
+      --surface-2:   #152d50;
+      --surface-3:   #1a3560;
+      --border:      #1e3f6a;
+      --border-2:    #254d7a;
+      --text:        #cdd9e5;
+      --text-2:      #8b949e;
+      --text-3:      #545d68;
+      --blue:        #4493f8;
+      --blue-dim:    rgba(68,147,248,.12);
+      --green:       #3fb950;
+      --green-dim:   rgba(63,185,80,.12);
+      --orange:      #e3901a;
+      --orange-dim:  rgba(227,144,26,.12);
+      --yellow:      #d29922;
+      --yellow-dim:  rgba(210,153,34,.12);
+      --red:         #f85149;
+      --red-dim:     rgba(248,81,73,.12);
+      --purple:      #a371f7;
+      --purple-dim:  rgba(163,113,247,.12);
+      --radius:      6px;
+      --topbar-h:    48px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:var(--bg); font-family:'Segoe UI',system-ui,-apple-system,sans-serif; color:var(--text); overflow:hidden; font-size:13px; }
+    #map { position:fixed; inset:0; background:var(--bg); z-index:0; }
+
+    /* ── TOPBAR ─────────────────────────────────────────────────────────── */
+    #topbar {
+      position:fixed; top:0; left:0; right:0; height:var(--topbar-h);
+      background:rgba(10,26,47,.95); border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:0;
+      z-index:900; backdrop-filter:blur(12px);
+    }
+    .tb-brand {
+      padding:0 18px; font-size:13px; font-weight:700; letter-spacing:.04em;
+      color:var(--text); white-space:nowrap; border-right:1px solid var(--border);
+      height:100%; display:flex; align-items:center; gap:8px;
+    }
+    .tb-brand-dot {
+      width:6px; height:6px; border-radius:50%; background:var(--green);
+      flex-shrink:0;
+    }
+    .tb-modes {
+      display:flex; height:100%; border-right:1px solid var(--border);
+    }
+    .mode-btn {
+      padding:0 18px; height:100%; border:none; background:none;
+      color:var(--text-2); font-size:12px; font-weight:600; letter-spacing:.03em;
+      cursor:pointer; position:relative; transition:color .15s; white-space:nowrap;
+    }
+    .mode-btn:hover { color:var(--text); }
+    .mode-btn.active-gfw { color:var(--green); }
+    .mode-btn.active-gfw::after {
+      content:''; position:absolute; bottom:0; left:18px; right:18px;
+      height:2px; background:var(--green); border-radius:1px 1px 0 0;
+    }
+    .mode-btn.active-ais { color:var(--blue); }
+    .mode-btn.active-ais::after {
+      content:''; position:absolute; bottom:0; left:18px; right:18px;
+      height:2px; background:var(--blue); border-radius:1px 1px 0 0;
+    }
+    .mode-btn.active-ai { color:var(--purple); }
+    .mode-btn.active-ai::after {
+      content:''; position:absolute; bottom:0; left:18px; right:18px;
+      height:2px; background:var(--purple); border-radius:1px 1px 0 0;
+    }
+    .tb-status {
+      padding:0 16px; display:flex; align-items:center; gap:8px;
+      border-right:1px solid var(--border); height:100%;
+    }
+    #dot { width:7px; height:7px; border-radius:50%; background:var(--red); flex-shrink:0; transition:background .3s; }
+    #dot.on { background:var(--green); box-shadow:0 0 6px var(--green); animation:pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+    #conn-label { font-size:12px; color:var(--text-2); }
+    .tb-counts {
+      display:flex; align-items:center; gap:16px;
+      padding:0 16px; border-right:1px solid var(--border); height:100%;
+    }
+    .tb-count { display:flex; flex-direction:column; gap:1px; }
+    .tb-count-label { font-size:9px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text-3); }
+    .tb-count-val   { font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text); line-height:1; }
+    #last-update { font-size:11px; color:var(--text-3); font-variant-numeric:tabular-nums; }
+    .tb-actions {
+      margin-left:auto; display:flex; align-items:center; height:100%;
+      border-left:1px solid var(--border);
+    }
+    .tb-btn {
+      padding:0 16px; height:100%; border:none; background:none;
+      color:var(--text-2); font-size:12px; font-weight:600; letter-spacing:.03em;
+      cursor:pointer; transition:color .15s; white-space:nowrap;
+      border-left:1px solid var(--border);
+    }
+    .tb-btn:first-child { border-left:none; }
+    .tb-btn:hover { color:var(--text); background:var(--surface); }
+    .tb-btn.active { color:var(--blue); }
+
+    /* ── STATS PANEL (kiri atas) ──────────────────────────────────────────── */
+    #stats-panel {
+      position:fixed; top:calc(var(--topbar-h) + 12px); left:12px;
+      width:300px; background:rgba(10,26,47,.94); border:1px solid var(--border);
+      border-radius:var(--radius); z-index:800; backdrop-filter:blur(12px);
+      overflow:hidden; transition:width .2s ease;
+    }
+    #stats-panel.ai-mode {
+      width:400px;
+      max-height:calc(100vh - var(--topbar-h) - 60px);
+      overflow-y:auto;
+    }
+    #stats-panel.ai-mode::-webkit-scrollbar { width:4px; }
+    #stats-panel.ai-mode::-webkit-scrollbar-thumb { background:var(--border-2); border-radius:2px; }
+    .stats-header {
+      padding:16px 20px 12px; border-bottom:1px solid var(--border);
+      font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+      color:var(--text-3); display:flex; justify-content:space-between; align-items:center;
+    }
+    .stats-date { font-size:12px; color:var(--text-3); font-weight:400; letter-spacing:0; text-transform:none; }
+    .stats-body { padding:12px 0; }
+    .stat-row {
+      display:flex; align-items:center; gap:12px;
+      padding:9px 20px; position:relative;
+    }
+    .stat-type { font-size:15px; color:var(--text-2); width:90px; flex-shrink:0; }
+    .stat-bar-wrap { flex:1; height:6px; background:var(--surface-3); border-radius:2px; overflow:hidden; }
+    .stat-bar { height:100%; border-radius:2px; transition:width .4s ease; }
+    .stat-val { font-size:16px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--text); width:32px; text-align:right; flex-shrink:0; }
+    .stats-footer {
+      padding:14px 20px; border-top:1px solid var(--border);
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .stats-total-label { font-size:13px; color:var(--text-3); }
+    .stats-total-val   { font-size:18px; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
+
+    /* AIS stats (ganti stats panel saat mode AIS) */
+    .ais-stat-row { padding:8px 12px; display:flex; justify-content:space-between; align-items:baseline; }
+    .ais-stat-label { font-size:11px; color:var(--text-2); }
+    .ais-stat-val   { font-size:18px; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
+
+    /* ── LEGEND (kiri bawah) ─────────────────────────────────────────────── */
+    #legend {
+      position:fixed; bottom:24px; left:12px;
+      background:rgba(10,26,47,.94); border:1px solid var(--border);
+      border-radius:var(--radius); z-index:800; backdrop-filter:blur(12px);
+      padding:20px 22px; font-size:15px; line-height:2.2; min-width:220px;
+    }
+    .leg-title { font-size:12px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-3); display:block; margin-bottom:10px; }
+    .leg-row { display:flex; align-items:center; gap:12px; }
+    .leg-dot { width:14px; height:14px; border-radius:50%; flex-shrink:0; }
+    .leg-label { color:var(--text-2); font-size:15px; }
+
+    /* ── TOPBAR LOADING BAR ───────────────────────────────────────────────── */
+    #topbar-progress {
+      position:fixed; top:var(--topbar-h); left:0; right:0; height:2px;
+      z-index:901; pointer-events:none; display:none;
+    }
+    #topbar-progress-fill {
+      height:100%; background:var(--green);
+      transition:width .4s ease;
+      box-shadow:0 0 8px var(--green);
+    }
+
+    /* ── LOADING OVERLAY (fallback) ───────────────────────────────────────── */
+    #loading {
+      position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+      background:rgba(10,26,47,.96); border:1px solid var(--border);
+      border-radius:var(--radius); padding:24px 32px; z-index:2000;
+      display:none; text-align:center; min-width:220px;
+    }
+    .load-bar {
+      width:100%; height:2px; background:var(--surface-3); border-radius:1px;
+      overflow:hidden; margin-bottom:14px;
+    }
+    .load-bar-fill {
+      height:100%; width:40%; background:var(--green);
+      border-radius:1px; animation:slide 1.2s ease-in-out infinite;
+    }
+    @keyframes slide { 0%{transform:translateX(-100%)} 100%{transform:translateX(350%)} }
+    #loading-label { font-size:13px; color:var(--text-2); }
+
+    /* ── DATASET LOADING BADGES ───────────────────────────────────────────── */
+    .ds-badges {
+      display:flex; gap:4px; flex-wrap:wrap;
+      padding:6px 12px; border-top:1px solid var(--border);
+    }
+    .ds-badge {
+      font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+      padding:2px 7px; border-radius:999px; border:1px solid var(--border-2);
+      color:var(--text-3); background:var(--surface-3);
+      display:flex; align-items:center; gap:4px; transition:.2s;
+    }
+    .ds-badge.loading { color:var(--yellow); border-color:rgba(210,153,34,.3); background:var(--yellow-dim); }
+    .ds-badge.done    { color:var(--green);  border-color:rgba(63,185,80,.3);  background:var(--green-dim); }
+    .ds-badge.err     { color:var(--red);    border-color:rgba(248,81,73,.3);  background:var(--red-dim); }
+    .ds-spin {
+      width:8px; height:8px; border:1.5px solid currentColor;
+      border-top-color:transparent; border-radius:50%;
+      animation:spin .6s linear infinite; flex-shrink:0;
+    }
+
+    /* ── DETAIL PANEL (kanan) ─────────────────────────────────────────────── */
+    #sidebar {
+      position:fixed; right:0; top:var(--topbar-h); bottom:0;
+      width:min(320px, 90vw);
+      background:rgba(10,26,47,.97); border-left:1px solid var(--border);
+      z-index:1200; display:flex; flex-direction:column;
+      transform:translateX(100%); transition:transform .22s ease;
+    }
+    #sidebar.open { transform:translateX(0); }
+
+    #sidebar-header {
+      padding:14px 16px 12px;
+      border-bottom:1px solid var(--border); flex-shrink:0;
+    }
+    .sb-title-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:2px; }
+    #sidebar-title { font-size:15px; font-weight:700; color:var(--text); line-height:1.3; }
+    #sidebar-close {
+      background:none; border:none; color:var(--text-3); cursor:pointer;
+      font-size:16px; line-height:1; padding:2px 4px; border-radius:4px; flex-shrink:0; margin-top:2px;
+    }
+    #sidebar-close:hover { color:var(--text); background:var(--surface-3); }
+    .sb-sub { font-size:11px; color:var(--text-3); margin-top:3px; }
+
+    #sidebar-body { flex:1; overflow-y:auto; padding:0; }
+    #sidebar-body::-webkit-scrollbar { width:4px; }
+    #sidebar-body::-webkit-scrollbar-track { background:transparent; }
+    #sidebar-body::-webkit-scrollbar-thumb { background:var(--border-2); border-radius:2px; }
+
+    /* Section dalam detail panel */
+    .sb-section { border-bottom:1px solid var(--border); }
+    .sb-section-title {
+      padding:10px 16px 8px;
+      font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+      color:var(--text-3); display:flex; justify-content:space-between; align-items:center;
+    }
+    .sb-section-badge {
+      font-size:10px; font-weight:700; padding:2px 7px; border-radius:999px; letter-spacing:.02em;
+    }
+    .sb-row {
+      display:flex; justify-content:space-between; align-items:baseline;
+      padding:6px 16px; gap:12px;
+    }
+    .sb-row + .sb-row { border-top:1px solid var(--border); }
+    .sb-key { font-size:12px; color:var(--text-2); flex-shrink:0; }
+    .sb-val { font-size:12px; font-weight:600; color:var(--text); text-align:right; word-break:break-all; font-variant-numeric:tabular-nums; }
+    .sb-val.mono { font-family:'Cascadia Code','Consolas',monospace; font-size:11px; }
+    .sb-val.dim  { color:var(--text-2); font-weight:400; }
+    .sb-loading  { padding:10px 16px; font-size:11px; color:var(--text-3); display:flex; align-items:center; gap:6px; }
+
+    /* History list */
+    .hist-item {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:7px 16px; cursor:pointer; transition:background .1s;
+    }
+    .hist-item + .hist-item { border-top:1px solid var(--border); }
+    .hist-item:hover { background:var(--surface-2); }
+    .hist-date { font-size:11px; color:var(--text-2); font-variant-numeric:tabular-nums; }
+    .hist-badge { font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; }
+
+    /* Trajectory info bar */
+    #sb-traj-info {
+      padding:6px 16px; font-size:11px; color:var(--text-2);
+      border-top:1px solid var(--border); flex-shrink:0; min-height:28px;
+      display:flex; align-items:center;
+    }
+
+    /* Footer buttons */
+    #sidebar-footer {
+      padding:10px 12px; border-top:1px solid var(--border);
+      display:flex; gap:8px; flex-shrink:0;
+    }
+    .sb-btn {
+      flex:1; padding:9px 10px; border-radius:var(--radius);
+      border:1px solid var(--border-2); background:var(--surface-2);
+      color:var(--text-2); cursor:pointer; font-size:12px; font-weight:600;
+      letter-spacing:.02em; transition:.15s; line-height:1;
+    }
+    .sb-btn:hover    { border-color:var(--blue); color:var(--blue); }
+    .sb-btn.traj-on  { border-color:var(--red);  color:var(--red);  background:var(--red-dim); }
+    .sb-btn.loading  { opacity:.5; cursor:not-allowed; }
+
+    /* Track history list */
+    .track-list { max-height:260px; overflow-y:auto; }
+    .track-list::-webkit-scrollbar { width:3px; }
+    .track-list::-webkit-scrollbar-thumb { background:var(--border-2); border-radius:2px; }
+    .track-row {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:6px 16px; cursor:pointer; transition:background .1s; gap:8px;
+    }
+    .track-row + .track-row { border-top:1px solid var(--border); }
+    .track-row:hover { background:var(--surface-2); }
+    .track-row-left { display:flex; align-items:flex-start; gap:8px; min-width:0; }
+    .track-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; margin-top:4px; }
+    .track-time { font-size:11px; color:var(--text); font-variant-numeric:tabular-nums; }
+    .track-coord { font-size:10px; color:var(--text-3); font-variant-numeric:tabular-nums; margin-top:1px; }
+    .track-label { display:inline-block; font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; background:var(--surface-3); color:var(--text-2); margin-left:4px; vertical-align:middle; }
+    .track-speed { font-size:11px; font-weight:700; flex-shrink:0; font-variant-numeric:tabular-nums; }
+
+    /* Spinner mikro */
+    .mini-spin {
+      display:inline-block; width:10px; height:10px;
+      border:2px solid var(--border-2); border-top-color:var(--blue);
+      border-radius:50%; animation:spin .7s linear infinite;
+    }
+    @keyframes spin { to{transform:rotate(360deg)} }
+
+    /* ── TOOL PANEL ───────────────────────────────────────────────────────── */
+    #tool-panel {
+      position:fixed; top:calc(var(--topbar-h) + 8px); right:8px;
+      width:min(360px, calc(100vw - 16px)); max-height:calc(100vh - var(--topbar-h) - 16px);
+      overflow:auto; background:rgba(10,26,47,.97); border:1px solid var(--border);
+      border-radius:var(--radius); z-index:1000; display:none;
+    }
+    .panel-header {
+      display:flex; border-bottom:1px solid var(--border);
+    }
+    .panel-tab {
+      flex:1; padding:11px 12px; border:none; background:none;
+      color:var(--text-2); font-size:11px; font-weight:700; letter-spacing:.06em;
+      text-transform:uppercase; cursor:pointer; transition:color .15s;
+      border-bottom:2px solid transparent;
+    }
+    .panel-tab.active { color:var(--blue); border-bottom-color:var(--blue); }
+    .panel-tab:hover:not(.active) { color:var(--text); }
+    .panel-body { padding:12px; }
+    .p-label { font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-3); margin-bottom:8px; display:block; }
+    .p-row { display:flex; gap:8px; margin-bottom:8px; }
+    .p-input {
+      flex:1; min-width:0; border:1px solid var(--border-2); background:var(--surface-2);
+      color:var(--text); border-radius:var(--radius); padding:8px 10px; font-size:12px;
+    }
+    .p-input:focus { outline:none; border-color:var(--blue); }
+    .p-btn {
+      border:1px solid var(--border-2); background:var(--surface-2); color:var(--text-2);
+      border-radius:var(--radius); padding:8px 14px; cursor:pointer; font-size:12px;
+      font-weight:600; white-space:nowrap; transition:.15s;
+    }
+    .p-btn:hover { border-color:var(--blue); color:var(--blue); }
+    .p-btn.primary { border-color:var(--blue); color:var(--blue); background:var(--blue-dim); }
+    .p-btn:disabled { opacity:.4; cursor:not-allowed; }
+    #query-list, #vessel-results { display:grid; gap:6px; }
+    .query-item {
+      border:1px solid var(--border); border-radius:var(--radius);
+      padding:10px; background:var(--surface-2);
+    }
+    .query-item-name { font-size:12px; font-weight:700; color:var(--text); margin-bottom:4px; }
+    .query-item-meta { font-size:11px; color:var(--text-2); line-height:1.6; }
+    .vessel-item {
+      border:1px solid var(--border); border-radius:var(--radius);
+      padding:9px; background:var(--surface-2); cursor:pointer; text-align:left;
+      width:100%; transition:border-color .15s;
+    }
+    .vessel-item:hover  { border-color:var(--blue); }
+    .vessel-item.active { border-color:var(--green); background:var(--green-dim); }
+    .vessel-item-name { font-size:12px; font-weight:700; color:var(--text); margin-bottom:3px; }
+    .vessel-item-meta { font-size:11px; color:var(--text-2); }
+    #track-summary { margin-top:8px; font-size:11px; color:var(--text-2); line-height:1.6; }
+
+    /* ── AI INFERENCE PANEL ──────────────────────────────────────────────── */
+    #ai-panel {
+      position:fixed; top:calc(var(--topbar-h) + 8px); right:8px;
+      width:min(380px, calc(100vw - 16px)); max-height:calc(100vh - var(--topbar-h) - 16px);
+      overflow:auto; background:rgba(10,26,47,.97); border:1px solid var(--border);
+      border-radius:var(--radius); z-index:1000; display:none;
+    }
+    #ai-panel::-webkit-scrollbar { width:4px; }
+    #ai-panel::-webkit-scrollbar-thumb { background:var(--border-2); border-radius:2px; }
+    .ai-panel-header {
+      display:flex; align-items:center; padding:10px 14px;
+      border-bottom:1px solid var(--border); flex-shrink:0;
+    }
+    .ai-panel-title {
+      font-size:11px; font-weight:700; letter-spacing:.06em;
+      text-transform:uppercase; color:var(--purple);
+    }
+    .ai-panel-close {
+      margin-left:auto; background:none; border:none; color:var(--text-3);
+      cursor:pointer; font-size:15px; padding:2px 4px; border-radius:4px; line-height:1;
+    }
+    .ai-panel-close:hover { color:var(--text); background:var(--surface-3); }
+    .ai-vessel-card {
+      border:1px solid var(--border); border-radius:var(--radius);
+      padding:10px; background:var(--surface-2); cursor:pointer;
+      transition:border-color .15s; margin-bottom:6px;
+    }
+    .ai-vessel-card:hover { border-color:var(--purple); }
+    .ai-vessel-name { font-size:12px; font-weight:700; color:var(--text); margin-bottom:2px; }
+    .ai-vessel-mmsi { font-size:10px; color:var(--text-3); margin-bottom:6px; font-variant-numeric:tabular-nums; }
+    .ai-task-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:2px; }
+    .ai-task-label { font-size:11px; color:var(--text-2); }
+    .ai-task-pred  { font-size:11px; font-weight:700; }
+    .ai-badge { display:inline-block; padding:1px 6px; border-radius:3px; font-size:10px; font-weight:700; }
+    .ai-conf-bar  { height:3px; border-radius:2px; background:var(--surface-3); overflow:hidden; margin-top:2px; margin-bottom:4px; }
+    .ai-conf-fill { height:100%; border-radius:2px; }
+    .ai-alert-bar {
+      margin-top:6px; padding:4px 8px; border-radius:4px; font-size:11px;
+      font-weight:700; display:flex; align-items:center; gap:6px;
+    }
+
+
+    /* ── AI MAP TOOLTIP ──────────────────────────────────────────────────── */
+    .ai-map-tip {
+      background:rgba(9,12,16,.92) !important;
+      border:1px solid var(--border-2) !important;
+      border-radius:5px !important;
+      color:var(--text) !important;
+      font-size:10px !important;
+      padding:5px 8px !important;
+      white-space:nowrap !important;
+      box-shadow:0 2px 10px rgba(0,0,0,.5) !important;
+      pointer-events:none !important;
+    }
+    .ai-map-tip.leaflet-tooltip-bottom::before,
+    .ai-map-tip.leaflet-tooltip-top::before { border-bottom-color:var(--border-2) !important; border-top-color:var(--border-2) !important; }
+
+    /* ── POPUP LEAFLET ────────────────────────────────────────────────────── */
+    .leaflet-container { background:var(--bg); }
+    .leaflet-control-zoom a { background:var(--surface) !important; color:var(--text) !important; border-color:var(--border) !important; }
+    .leaflet-control-attribution { background:rgba(9,12,16,.7) !important; color:var(--text-3) !important; font-size:10px !important; }
+    .leaflet-control-attribution a { color:var(--blue) !important; }
+    .leaflet-popup-content-wrapper { background:var(--surface) !important; color:var(--text) !important; border:1px solid var(--border-2) !important; border-radius:var(--radius) !important; box-shadow:0 8px 24px rgba(0,0,0,.5) !important; }
+    .leaflet-popup-tip { background:var(--surface) !important; }
+    .leaflet-popup-content { margin:12px 14px !important; font-size:12px; line-height:1.6; }
+    .popup-name  { font-size:13px; font-weight:700; color:var(--text); margin-bottom:6px; }
+    .popup-badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; margin-bottom:8px; }
+    .popup-row   { display:flex; justify-content:space-between; gap:16px; }
+    .popup-row span:first-child { color:var(--text-2); }
+    .popup-row b { color:var(--text); }
+    .popup-coord { font-size:10px; color:var(--text-3); margin-top:6px; border-top:1px solid var(--border); padding-top:6px; font-variant-numeric:tabular-nums; }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- TOPBAR -->
+<header id="topbar">
+  <div class="tb-brand">
+    <span class="tb-brand-dot"></span>
+    SAMUDRA AYA
+  </div>
+  <div class="tb-modes">
+    <button class="mode-btn active-gfw" id="btn-gfw" onclick="setMode('gfw')">GFW Events</button>
+    <button class="mode-btn" id="btn-ais" onclick="setMode('ais')">AIS Live</button>
+    <button class="mode-btn" id="btn-ai" onclick="setMode('ai')">AI Inference</button>
+  </div>
+  <div class="tb-status">
+    <span id="dot"></span>
+    <span id="conn-label">Memuat…</span>
+  </div>
+  <div class="tb-counts">
+    <div class="tb-count">
+      <span class="tb-count-label">Kapal</span>
+      <span class="tb-count-val" id="ship-count">0</span>
+    </div>
+    <div class="tb-count">
+      <span class="tb-count-label">Pesan</span>
+      <span class="tb-count-val" id="msg-count">0</span>
+    </div>
+    <span id="last-update">—</span>
+  </div>
+  <div class="tb-actions">
+    <button class="tb-btn" id="btn-tools" onclick="togglePanel()">Query & Track</button>
+  </div>
+</header>
+
+<!-- TOPBAR PROGRESS BAR -->
+<div id="topbar-progress"><div id="topbar-progress-fill" style="width:0%"></div></div>
+
+<!-- STATS PANEL -->
+<div id="stats-panel">
+  <div class="stats-header">
+    <span id="stats-mode-label">GFW EVENTS</span>
+    <span class="stats-date" id="stats-range">—</span>
+  </div>
+  <div id="ds-badges-row" class="ds-badges" style="display:none">
+    <span class="ds-badge" id="badge-fishing"><span class="ds-spin"></span>Fishing</span>
+    <span class="ds-badge" id="badge-encounter"><span class="ds-spin"></span>Encounter</span>
+    <span class="ds-badge" id="badge-loitering"><span class="ds-spin"></span>Loitering</span>
+  </div>
+  <div class="stats-body" id="stats-body">
+    <div class="stat-row">
+      <span class="stat-type">Fishing</span>
+      <div class="stat-bar-wrap"><div class="stat-bar" id="bar-fishing" style="background:var(--green);width:0%"></div></div>
+      <span class="stat-val" id="cnt-fishing">0</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-type">Encounter</span>
+      <div class="stat-bar-wrap"><div class="stat-bar" id="bar-encounter" style="background:var(--orange);width:0%"></div></div>
+      <span class="stat-val" id="cnt-encounter">0</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-type">Loitering</span>
+      <div class="stat-bar-wrap"><div class="stat-bar" id="bar-loitering" style="background:var(--yellow);width:0%"></div></div>
+      <span class="stat-val" id="cnt-loitering">0</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-type">Lainnya</span>
+      <div class="stat-bar-wrap"><div class="stat-bar" id="bar-other" style="background:var(--text-3);width:0%"></div></div>
+      <span class="stat-val" id="cnt-other">0</span>
+    </div>
+  </div>
+  <div class="stats-footer" id="stats-footer">
+    <span class="stats-total-label">Total events</span>
+    <span class="stats-total-val" id="stats-total">0</span>
+  </div>
+</div>
+
+<!-- LEGEND -->
+<div id="legend">
+  <span class="leg-title">Tipe Event</span>
+  <div class="leg-row"><span class="leg-dot" style="background:var(--green)"></span><span class="leg-label">Fishing</span></div>
+  <div class="leg-row"><span class="leg-dot" style="background:var(--orange)"></span><span class="leg-label">Encounter</span></div>
+  <div class="leg-row"><span class="leg-dot" style="background:var(--yellow)"></span><span class="leg-label">Loitering</span></div>
+</div>
+
+<!-- LOADING -->
+<div id="loading">
+  <div class="load-bar"><div class="load-bar-fill"></div></div>
+  <div id="loading-label">Mengambil data GFW…</div>
+</div>
+
+
+<!-- TOOL PANEL -->
+<div id="tool-panel">
+  <div class="panel-header">
+    <button class="panel-tab active" id="tab-queries" onclick="switchTab('queries')">GFWR Query</button>
+    <button class="panel-tab"        id="tab-track"   onclick="switchTab('track')">Trajectory</button>
+  </div>
+  <div class="panel-body">
+    <div id="queries-view">
+      <div id="query-list" style="color:var(--text-2);font-size:12px">Klik untuk memuat katalog…</div>
+    </div>
+    <div id="track-view" style="display:none">
+      <span class="p-label">Cari Kapal</span>
+      <div class="p-row">
+        <input class="p-input" id="vessel-query" placeholder="MMSI / IMO / nama kapal" />
+        <button class="p-btn primary" onclick="searchVessel()">Cari</button>
+      </div>
+      <div id="vessel-results"></div>
+      <span class="p-label" style="margin-top:10px;display:block">Rentang Tanggal</span>
+      <div class="p-row">
+        <input type="date" class="p-input" id="track-start" />
+        <input type="date" class="p-input" id="track-end" />
+      </div>
+      <div class="p-row">
+        <button class="p-btn primary" id="load-track" onclick="loadTrack()" disabled style="flex:1">Plot Trajectory</button>
+        <button class="p-btn" onclick="clearTraj()">Hapus</button>
+      </div>
+      <div id="track-summary"></div>
+    </div>
+  </div>
+</div>
+
+<!-- AI INFERENCE PANEL -->
+<div id="ai-panel">
+  <div class="ai-panel-header">
+    <span class="ai-panel-title">AI Inference</span>
+    <button class="ai-panel-close" onclick="document.getElementById('ai-panel').style.display='none'" title="Tutup">✕</button>
+  </div>
+  <div class="panel-body">
+    <div id="ai-status" style="font-size:11px;color:var(--text-3);margin-bottom:8px;min-height:16px">Memuat hasil inference batch terbaru...</div>
+    <div id="ai-results"></div>
+  </div>
+</div>
+
+<!-- DETAIL PANEL -->
+<aside id="sidebar">
+  <div id="sidebar-header">
+    <div class="sb-title-row">
+      <span id="sidebar-title">Detail Kapal</span>
+      <button id="sidebar-close" onclick="closeSidebar()">✕</button>
+    </div>
+    <div class="sb-sub" id="sidebar-sub"></div>
+  </div>
+  <div id="sidebar-body"></div>
+  <div id="sb-traj-info"></div>
+  <div id="sidebar-footer">
+    <button class="sb-btn" id="sb-traj-btn" onclick="toggleTraj()">Tampilkan Trajectory</button>
+    <button class="sb-btn" onclick="zoomTo()">Zoom ke Posisi</button>
+  </div>
+</aside>
+
+<script>
+// ── MAP ───────────────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl:false }).setView([-2.5, 117.0], 5);
+L.control.zoom({ position:'bottomright' }).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}', {
+  attribution:'&copy; <a href="https://www.esri.com">Esri</a>, GEBCO, NOAA',
+  maxZoom:19,
+}).addTo(map);
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+const ships          = {};
+let   gfwEvents      = [];
+let   gfwRangeLabel  = '—';
+const trajLayer        = L.layerGroup().addTo(map);
+const sidebarTrajLayer = L.layerGroup().addTo(map);
+const historyLayer     = L.layerGroup().addTo(map);
+
+let mode               = 'gfw';
+let msgCount           = 0;
+let aisKey             = localStorage.getItem('ais_key') || 'cadc1da33463ea00ff85c0c1d8506ce3b8a57fcd';
+if (!localStorage.getItem('ais_key')) localStorage.setItem('ais_key', aisKey);
+let aisWs              = null;
+let sidebarKey         = null;
+let trajActive         = false;
+let queryCatalogLoaded = false;
+let selectedVessel     = null;
+
+const GFW_CACHE_KEY = 'gfw-events-cache-v7';
+const GFW_CACHE_TTL = 10 * 60 * 1000;
+const AIS_TRAIL_MAX = 120;
+const AIS_BBOXES    = [
+  [[-8.0,105.0],[-4.0,116.0]],
+  [[ 1.0, 99.0],[ 6.0,104.0]],
+  [[-8.0,112.0],[-6.5,113.5]],
+];
+
+// ── COLORS ────────────────────────────────────────────────────────────────────
+function aisColor(speed) {
+  if (speed == null) return '#545d68';
+  if (speed < 1)  return '#f85149';
+  if (speed < 5)  return '#e3901a';
+  if (speed < 12) return '#4493f8';
+  return '#3fb950';
+}
+function gfwColor(type) {
+  switch ((type||'').toUpperCase()) {
+    case 'FISHING':   return '#3fb950';
+    case 'ENCOUNTER': return '#e3901a';
+    case 'LOITERING': return '#d29922';
+    default:          return '#545d68';
+  }
+}
+
+// ── ICONS ─────────────────────────────────────────────────────────────────────
+function makeAisIcon(speed, heading) {
+  const c = aisColor(speed);
+  const r = (heading != null && heading < 360) ? heading : 0;
+  return L.divIcon({
+    className:'',
+    html:`<div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center">
+      <div style="transform:rotate(${r}deg);filter:drop-shadow(0 0 3px ${c}99)">
+        <svg viewBox="0 0 20 20" width="16" height="16">
+          <path d="M10 1 L17 17 L10 13 L3 17 Z" fill="${c}" stroke="#090c10" stroke-width="1.5"/>
+        </svg>
+      </div>
+    </div>`,
+    iconSize:[28,28], iconAnchor:[14,14],
+  });
+}
+function makeGfwIcon(type, selected) {
+  const c  = gfwColor(type);
+  const sz = selected ? 15 : 10;
+  const glow = selected ? `box-shadow:0 0 0 2px ${c}33,0 0 8px ${c}88;` : '';
+  return L.divIcon({
+    className:'',
+    html:`<div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center">
+      <div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${c};border:1.5px solid #090c10;${glow}transition:.12s"></div>
+    </div>`,
+    iconSize:[28,28], iconAnchor:[14,14],
+  });
+}
+
+// ── STATUS ────────────────────────────────────────────────────────────────────
+function setStatus(online, label) {
+  document.getElementById('dot').classList.toggle('on', online);
+  document.getElementById('conn-label').textContent = label;
+}
+function setLoading(show, label) {
+  document.getElementById('loading').style.display = show ? 'block' : 'none';
+  if (label) document.getElementById('loading-label').textContent = label;
+}
+function setProgress(pct, color) {
+  const bar  = document.getElementById('topbar-progress');
+  const fill = document.getElementById('topbar-progress-fill');
+  if (pct < 0) { bar.style.display = 'none'; fill.style.width = '0%'; }
+  else {
+    bar.style.display = 'block';
+    fill.style.width = pct + '%';
+    if (color) { fill.style.background = color; fill.style.boxShadow = `0 0 8px ${color}`; }
+  }
+}
+function setBadge(type, state, count) {
+  const el = document.getElementById('badge-' + type); if (!el) return;
+  const spin  = state === 'loading' ? '<span class="ds-spin"></span>' : '';
+  const prefix = state === 'done' ? '✓ ' : state === 'err' ? '✗ ' : '';
+  const label  = type.charAt(0).toUpperCase() + type.slice(1);
+  const num    = count != null ? ` ${count}` : '';
+  el.className = 'ds-badge ' + state;
+  el.innerHTML = spin + prefix + label + num;
+}
+
+// ── STATS ─────────────────────────────────────────────────────────────────────
+function updateStats() {
+  if (mode !== 'gfw') return;
+  const counts = { FISHING:0, ENCOUNTER:0, LOITERING:0, OTHER:0 };
+  gfwEvents.forEach(ev => {
+    const t = (ev.type||'').toUpperCase();
+    if (counts[t] !== undefined) counts[t]++;
+    else counts.OTHER++;
+  });
+  const total = gfwEvents.length;
+  document.getElementById('cnt-fishing').textContent   = counts.FISHING;
+  document.getElementById('cnt-encounter').textContent = counts.ENCOUNTER;
+  document.getElementById('cnt-loitering').textContent = counts.LOITERING;
+  document.getElementById('cnt-other').textContent     = counts.OTHER;
+  document.getElementById('stats-total').textContent   = total;
+  const pct = v => total ? Math.max(4, Math.round(v / total * 100)) : 0;
+  document.getElementById('bar-fishing').style.width   = pct(counts.FISHING)   + '%';
+  document.getElementById('bar-encounter').style.width = pct(counts.ENCOUNTER) + '%';
+  document.getElementById('bar-loitering').style.width = pct(counts.LOITERING) + '%';
+  document.getElementById('bar-other').style.width     = pct(counts.OTHER)     + '%';
+}
+
+function setStatsMode(m) {
+  const statsPanel = document.getElementById('stats-panel');
+  const body       = document.getElementById('stats-body');
+  document.getElementById('stats-mode-label').textContent = m === 'gfw' ? 'GFW EVENTS' : m === 'ai' ? 'AI INFERENCE' : 'AIS LIVE';
+  if (m === 'ai') {
+    statsPanel.classList.add('ai-mode');
+    body.innerHTML = `
+      <div style="padding:8px 10px 2px">
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <div style="flex:1;background:var(--surface-3);border-radius:4px;padding:5px 8px">
+            <div style="font-size:9px;color:var(--text-3);font-weight:700;letter-spacing:.06em;text-transform:uppercase">GFW</div>
+            <div style="font-size:16px;font-weight:700;color:var(--green)" id="ai-cnt-gfw">—</div>
+          </div>
+          <div style="flex:1;background:var(--surface-3);border-radius:4px;padding:5px 8px">
+            <div style="font-size:9px;color:var(--text-3);font-weight:700;letter-spacing:.06em;text-transform:uppercase">AIS</div>
+            <div style="font-size:16px;font-weight:700;color:var(--blue)" id="ai-cnt-ais">—</div>
+          </div>
+        </div>
+        <div id="ai-status" style="font-size:10px;color:var(--text-3);margin-top:6px;min-height:14px;line-height:1.4;word-break:break-word">Memuat hasil inference batch terbaru...</div>
+      </div>
+      <div id="ai-results" style="padding:0 8px 8px"></div>`;
+    document.getElementById('stats-footer').style.display = 'none';
+  } else {
+    statsPanel.classList.remove('ai-mode');
+  }
+  if (m === 'ais') {
+    body.innerHTML = `
+      <div class="ais-stat-row"><span class="ais-stat-label">Kapal Aktif</span><span class="ais-stat-val" id="ais-ship-val">0</span></div>
+      <div class="ais-stat-row"><span class="ais-stat-label">Pesan Diterima</span><span class="ais-stat-val" id="ais-msg-val">0</span></div>`;
+    document.getElementById('stats-footer').style.display = 'none';
+  } else if (m === 'gfw') {
+    body.innerHTML = `
+      <div class="stat-row"><span class="stat-type">Fishing</span><div class="stat-bar-wrap"><div class="stat-bar" id="bar-fishing" style="background:var(--green);width:0%"></div></div><span class="stat-val" id="cnt-fishing">0</span></div>
+      <div class="stat-row"><span class="stat-type">Encounter</span><div class="stat-bar-wrap"><div class="stat-bar" id="bar-encounter" style="background:var(--orange);width:0%"></div></div><span class="stat-val" id="cnt-encounter">0</span></div>
+      <div class="stat-row"><span class="stat-type">Loitering</span><div class="stat-bar-wrap"><div class="stat-bar" id="bar-loitering" style="background:var(--yellow);width:0%"></div></div><span class="stat-val" id="cnt-loitering">0</span></div>
+      <div class="stat-row"><span class="stat-type">Lainnya</span><div class="stat-bar-wrap"><div class="stat-bar" id="bar-other" style="background:var(--text-3);width:0%"></div></div><span class="stat-val" id="cnt-other">0</span></div>`;
+    document.getElementById('stats-footer').style.display = 'flex';
+  }
+}
+
+// ── MODE SWITCH ───────────────────────────────────────────────────────────────
+function setMode(m) {
+  if (m === mode) return;
+  mode = m;
+  clearAllMarkers();
+  closeSidebar();
+  trajLayer.clearLayers(); sidebarTrajLayer.clearLayers(); historyLayer.clearLayers();
+
+  document.getElementById('btn-gfw').className = 'mode-btn' + (m === 'gfw' ? ' active-gfw' : '');
+  document.getElementById('btn-ais').className = 'mode-btn' + (m === 'ais' ? ' active-ais' : '');
+  document.getElementById('btn-ai').className  = 'mode-btn' + (m === 'ai'  ? ' active-ai'  : '');
+  document.getElementById('stats-range').textContent = '—';
+  setStatsMode(m);
+  updateLegend(m);
+  document.getElementById('stats-total').textContent = '0';
+
+  if (m === 'ais') {
+    stopAis();
+    startAis();
+  } else if (m === 'ai') {
+    const gfwEl = document.getElementById('ai-cnt-gfw');
+    const aisEl = document.getElementById('ai-cnt-ais');
+    if (gfwEl) gfwEl.textContent = '…';
+    if (aisEl) aisEl.textContent = '…';
+    loadGfw(true);
+    renderInferenceState();
+    startAis();
+  } else {
+    stopAis();
+    if (gfwEvents.length) restoreGfwEvents();
+    else loadGfw();
+  }
+}
+
+function updateLegend(m) {
+  const el = document.getElementById('legend');
+  if (m === 'ai') {
+    el.innerHTML = `
+      <span class="leg-title">Gear Type (AI)</span>
+      <div class="leg-row"><span class="leg-dot" style="background:#4493f8"></span><span class="leg-label">Drifting Longline</span></div>
+      <div class="leg-row"><span class="leg-dot" style="background:#d29922"></span><span class="leg-label">Set Longline</span></div>
+      <div class="leg-row"><span class="leg-dot" style="background:#a371f7"></span><span class="leg-label">Gillnet</span></div>
+      <div class="leg-row"><span class="leg-dot" style="background:#e3901a"></span><span class="leg-label">Trawler</span></div>
+      <div class="leg-row"><span class="leg-dot" style="background:#3fb950"></span><span class="leg-label">Troller / Fishing</span></div>
+      <div class="leg-row"><span class="leg-dot" style="background:#f85149;border:2px solid #f85149"></span><span class="leg-label">⚠ Spoofing / Go Dark</span></div>`;
+  } else if (m === 'ais') {
+    el.innerHTML = `
+      <span class="leg-title">Kecepatan</span>
+      <div class="leg-row"><span class="leg-dot" style="background:#f85149"></span><span class="leg-label">Berhenti &lt;1 kn</span></div>
+      <div class="leg-row"><span class="leg-dot" style="background:#e3901a"></span><span class="leg-label">Lambat 1–5 kn</span></div>
+      <div class="leg-row"><span class="leg-dot" style="background:#4493f8"></span><span class="leg-label">Normal 5–12 kn</span></div>
+      <div class="leg-row"><span class="leg-dot" style="background:#3fb950"></span><span class="leg-label">Cepat &gt;12 kn</span></div>`;
+  } else {
+    el.innerHTML = `
+      <span class="leg-title">Tipe Event</span>
+      <div class="leg-row"><span class="leg-dot" style="background:var(--green)"></span><span class="leg-label">Fishing</span></div>
+      <div class="leg-row"><span class="leg-dot" style="background:var(--orange)"></span><span class="leg-label">Encounter</span></div>
+      <div class="leg-row"><span class="leg-dot" style="background:var(--yellow)"></span><span class="leg-label">Loitering</span></div>`;
+  }
+}
+
+// ── AIS ───────────────────────────────────────────────────────────────────────
+function startAis() {
+  if (!aisKey) return;
+  setStatus(false, 'Menghubungkan AIS…');
+  setProgress(15, 'var(--blue)');
+  aisWs = new WebSocket('wss://stream.aisstream.io/v0/stream');
+  aisWs.onopen = () => {
+    aisWs.send(JSON.stringify({ APIKey:aisKey, BoundingBoxes:AIS_BBOXES, FilterMessageTypes:['PositionReport','ShipStaticData'] }));
+    setStatus(true, 'AIS Online');
+    setProgress(100, 'var(--blue)');
+    setTimeout(() => setProgress(-1), 600);
+  };
+  aisWs.onmessage = e => {
+    try { const p = parseAis(JSON.parse(e.data)); if (p) processMarker(p); } catch {}
+  };
+  aisWs.onclose = () => {
+    setStatus(false, 'AIS Terputus');
+    if (mode === 'ais') setTimeout(startAis, 5000);
+    else if (mode === 'ai' && document.getElementById('ai-src-ais')?.checked) setTimeout(startAis, 5000);
+  };
+  aisWs.onerror = () => aisWs.close();
+}
+function stopAis() {
+  if (aisWs) { aisWs.onclose = null; aisWs.close(); aisWs = null; }
+}
+function parseAis(msg) {
+  const type = msg.MessageType, meta = msg.MetaData || {};
+  const lat = meta.latitude, lon = meta.longitude;
+  if (!lat || !lon) return null;
+  const base = { source:'ais', key:String(meta.MMSI||''), mmsi:meta.MMSI, name:(meta.ShipName||'').trim(), lat, lon, waktu:meta.time_utc, speed:null, course:null, heading:null, navStatus:null, destination:null };
+  if (type === 'PositionReport') { const pr = msg.Message?.PositionReport||{}; base.speed=pr.Sog; base.course=pr.Cog; base.heading=pr.TrueHeading; base.navStatus=pr.NavigationalStatus; }
+  else if (type === 'ShipStaticData') { const sd = msg.Message?.ShipStaticData||{}; base.destination=(sd.Destination||'').trim(); }
+  return base.key ? base : null;
+}
+
+// ── GFW ───────────────────────────────────────────────────────────────────────
+function gfwDateRange() {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - 30);
+  return { start:start.toISOString().slice(0,10), end:end.toISOString().slice(0,10) };
+}
+
+function clearGfwMarkers(preserveEvents = false) {
+  for (const [k, s] of Object.entries(ships)) {
+    if (s.data.source === 'gfw') { map.removeLayer(s.marker); delete ships[k]; }
+  }
+  if (!preserveEvents) gfwEvents = [];
+}
+
+function restoreGfwEvents() {
+  gfwEvents.forEach(ev => processMarker(ev));
+  setStatus(true, `GFW · ${gfwEvents.length} events`);
+  updateStats();
+  document.getElementById('stats-range').textContent = gfwRangeLabel;
+}
+
+async function loadGfw(forceRefresh) {
+  const isAiMode = mode === 'ai';
+
+  // Cache hanya dipakai di GFW mode (bukan AI mode)
+  if (!forceRefresh && !isAiMode) {
+    try {
+      const raw = localStorage.getItem(GFW_CACHE_KEY);
+      if (raw) {
+        const c = JSON.parse(raw);
+        if (c?.t && Date.now()-c.t < GFW_CACHE_TTL && Array.isArray(c.events)) {
+          gfwEvents = c.events;
+          gfwRangeLabel = c.range || gfwRangeLabel;
+          c.events.forEach(ev => processMarker(ev));
+          setStatus(true, `GFW · ${c.events.length} events`);
+          updateStats();
+          if (c.range) document.getElementById('stats-range').textContent = c.range;
+          return;
+        }
+      }
+    } catch {}
+  }
+
+  // Hapus hanya marker GFW (bukan AIS) saat di AI mode
+  if (isAiMode) {
+    clearGfwMarkers(true);
+    updateAiCounters();
+  } else {
+    clearAllMarkers();
+  }
+
+  const { start, end } = gfwDateRange();
+  const rangeStr = `${fmtDateShort(start)} – ${fmtDateShort(end)}`;
+  if (!isAiMode) {
+    setStatus(false, 'Memuat GFW…');
+    document.getElementById('stats-range').textContent = rangeStr;
+  }
+
+  // Animasikan progress bar selama nunggu GFW API (~60-90 detik normal)
+  const badgeRow = document.getElementById('ds-badges-row');
+  if (badgeRow) {
+    badgeRow.style.display = 'flex';
+    setBadge('fishing', 'loading');
+    setBadge('encounter', 'loading');
+    setBadge('loitering', 'loading');
+  }
+  setProgress(5, 'var(--green)');
+  const t0gfw = Date.now();
+  let fakePct = 5;
+  const progressTimer = setInterval(() => {
+    fakePct = Math.min(fakePct + 1, 90);
+    setProgress(fakePct, 'var(--green)');
+    const elapsed = ((Date.now() - t0gfw) / 1000).toFixed(0);
+    if (!isAiMode) setStatus(false, `Memuat GFW… ${elapsed}s`);
+  }, 900);
+
+  try {
+    const r = await fetch(`/api/gfw/events?start_date=${start}&end_date=${end}`);
+    const j = await r.json();
+    if (!r.ok || j.error) console.warn('[gfw] server error:', j.error || j);
+    const evs = (j.events || []).map(normalizeGfw).filter(Boolean);
+    gfwEvents = isAiMode ? [...gfwEvents.filter(e=>e.source!=='gfw'), ...evs] : evs;
+    gfwRangeLabel = rangeStr;
+    evs.forEach(ev => processMarker(ev));
+
+    clearInterval(progressTimer);
+    setProgress(100);
+    setTimeout(() => {
+      setProgress(-1);
+      if (badgeRow) {
+        setBadge('fishing',   'done', evs.filter(e=>(e.type||'').toUpperCase()==='FISHING').length);
+        setBadge('encounter', 'done', evs.filter(e=>(e.type||'').toUpperCase()==='ENCOUNTER').length);
+        setBadge('loitering', 'done', evs.filter(e=>(e.type||'').toUpperCase()==='LOITERING').length);
+        setTimeout(() => { badgeRow.style.display = 'none'; }, 2000);
+      }
+    }, 600);
+
+    const elapsedGfw = ((Date.now() - t0gfw) / 1000).toFixed(1);
+    if (!isAiMode) {
+      setStatus(true, `GFW · ${evs.length} events · ${elapsedGfw}s`);
+      updateStats();
+      document.getElementById('stats-range').textContent = rangeStr;
+      try { localStorage.setItem(GFW_CACHE_KEY, JSON.stringify({ t:Date.now(), events:evs, range:rangeStr })); } catch {}
+    } else {
+      setStatus(true, `GFW ${evs.length} + AIS live · ${elapsedGfw}s`);
+      updateAiCounters();
+    }
+  } catch (err) {
+    clearInterval(progressTimer);
+    setProgress(-1);
+    if (badgeRow) { setBadge('fishing','err'); setBadge('encounter','err'); setBadge('loitering','err'); }
+    console.error('[gfw] fetch error:', err);
+    if (!isAiMode) setStatus(false, 'GFW gagal: ' + err.message);
+  }
+}
+
+
+function normalizeGfw(ev) {
+  const lat = ev.position?.lat, lon = ev.position?.lon;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const durationHours = (ev.start && ev.end)
+    ? (new Date(ev.end) - new Date(ev.start)) / 3_600_000 : null;
+  return { source:'gfw', key:ev.id, id:ev.id, type:ev.type, lat, lon,
+    mmsi:ev.vessel?.ssvid, name:ev.vessel?.name||'Unknown',
+    flag:ev.vessel?.flag, vesselId:ev.vessel?.id,
+    start:ev.start, end:ev.end, durationHours };
+}
+
+// ── MARKERS ───────────────────────────────────────────────────────────────────
+function processMarker(d) {
+  if (!d.key) return;
+  const icon = d.source === 'gfw' ? makeGfwIcon(d.type, false) : makeAisIcon(d.speed, d.heading < 511 ? d.heading : d.course);
+  if (ships[d.key]) {
+    ships[d.key].marker.setLatLng([d.lat,d.lon]).setIcon(icon);
+    ships[d.key].data = { ...ships[d.key].data, ...d };
+    ships[d.key].lastSeen = Date.now();
+    if (d.source === 'ais') { ships[d.key].trail.push({lat:d.lat,lon:d.lon,t:Date.now()}); if (ships[d.key].trail.length > AIS_TRAIL_MAX) ships[d.key].trail.shift(); }
+    if (sidebarKey === d.key) renderSidebarBody(ships[d.key].data);
+  } else {
+    const marker = L.marker([d.lat,d.lon], { icon }).addTo(map);
+    marker.on('click', () => d.source === 'gfw' ? openGfwDetail(d.key) : openSidebar(d.key));
+    ships[d.key] = { marker, data:d, lastSeen:Date.now(), trail:d.source==='ais'?[{lat:d.lat,lon:d.lon,t:Date.now()}]:[] };
+  }
+  if (d.source === 'ais') {
+    msgCount++;
+    document.getElementById('msg-count').textContent = msgCount;
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString('id-ID');
+    const sv = document.getElementById('ais-ship-val'); if (sv) sv.textContent = Object.keys(ships).length;
+    const mv = document.getElementById('ais-msg-val');  if (mv) mv.textContent = msgCount;
+    updateAiCounters();
+  }
+  document.getElementById('ship-count').textContent = Object.keys(ships).length;
+}
+
+function clearAllMarkers() {
+  Object.values(ships).forEach(s => map.removeLayer(s.marker));
+  for (const k in ships) delete ships[k];
+  msgCount = 0;
+  document.getElementById('ship-count').textContent = '0';
+  document.getElementById('msg-count').textContent  = '0';
+}
+
+// ── GFW DETAIL ───────────────────────────────────────────────────────────────
+function openGfwDetail(key) {
+  const s = ships[key]; if (!s) return;
+  closeToolPanel();
+  document.getElementById('sb-traj-btn').onclick = toggleTraj;
+  const d = s.data;
+  if (sidebarKey && ships[sidebarKey]?.data?.source === 'gfw')
+    ships[sidebarKey].marker.setIcon(makeGfwIcon(ships[sidebarKey].data.type, false));
+  s.marker.setIcon(makeGfwIcon(d.type, true));
+  sidebarKey = key; trajActive = false;
+  sidebarTrajLayer.clearLayers(); historyLayer.clearLayers();
+  showGfwPopup(d, s.marker);
+  renderSidebarGfw(d);
+  document.getElementById('sidebar').classList.add('open');
+  showHistoryMarkers(d);
+  if (d.mmsi || d.vesselId) fetchVesselIdentity(d.mmsi, d.vesselId);
+  const btn = document.getElementById('sb-traj-btn');
+  btn.className = 'sb-btn';
+  btn.textContent = d.vesselId ? 'Tampilkan Trajectory' : 'Trajectory (N/A)';
+  document.getElementById('sb-traj-info').textContent = '';
+}
+
+function showGfwPopup(d, marker) {
+  const c = gfwColor(d.type);
+  marker.bindPopup(`
+    <div class="popup-name">${esc(d.name||'Unknown')}</div>
+    <span class="popup-badge" style="background:${c}22;color:${c};border:1px solid ${c}44">${esc(d.type||'—')}</span>
+    <div style="margin-top:6px">
+      ${d.mmsi ? `<div class="popup-row"><span>MMSI</span><b>${esc(String(d.mmsi))}</b></div>` : ''}
+      ${d.flag ? `<div class="popup-row"><span>Bendera</span><b>${esc(d.flag)}</b></div>` : ''}
+      <div class="popup-row"><span>Durasi</span><b>${fmtDur(d.durationHours)}</b></div>
+    </div>
+    <div class="popup-coord">${d.lat.toFixed(4)}°, ${d.lon.toFixed(4)}° &nbsp;·&nbsp; ${fmtD(d.start)}</div>
+  `, { maxWidth:230, autoPanPadding:[20,80] }).openPopup();
+}
+
+function showHistoryMarkers(d) {
+  const same = gfwEvents.filter(ev =>
+    ev.key !== d.key && ((d.vesselId && ev.vesselId === d.vesselId) || (d.mmsi && ev.mmsi && String(ev.mmsi)===String(d.mmsi)))
+  );
+  same.forEach(ev => {
+    const c = gfwColor(ev.type);
+    L.circleMarker([ev.lat,ev.lon], { radius:5, color:c, fillColor:c, fillOpacity:0.25, weight:1.5, opacity:0.45 })
+      .bindPopup(`<b>${esc(ev.type)}</b><br>${fmtD(ev.start)}`)
+      .addTo(historyLayer);
+  });
+}
+
+async function fetchVesselIdentity(mmsi, vesselId) {
+  const el = document.getElementById('sb-identity'); if (!el) return;
+  const query = mmsi ? String(mmsi) : vesselId; if (!query) return;
+  try {
+    const r = await fetch(`/api/gfw/vessels/search?query=${encodeURIComponent(query)}&limit=1`);
+    const d = await r.json();
+    const v = d.entries?.[0];
+    if (!v) { el.innerHTML = '<div class="sb-section-title">IDENTITAS GFW</div><div style="padding:8px 16px;font-size:12px;color:var(--text-3)">Tidak ditemukan di database GFW.</div>'; return; }
+    el.innerHTML = `
+      <div class="sb-section-title">IDENTITAS GFW</div>
+      ${v.ship_name ? `<div class="sb-row"><span class="sb-key">Nama Resmi</span><span class="sb-val">${esc(v.ship_name)}</span></div>` : ''}
+      ${v.imo       ? `<div class="sb-row"><span class="sb-key">IMO</span><span class="sb-val mono">${esc(String(v.imo))}</span></div>` : ''}
+      ${v.callsign  ? `<div class="sb-row"><span class="sb-key">Callsign</span><span class="sb-val mono">${esc(v.callsign)}</span></div>` : ''}
+      ${v.flag      ? `<div class="sb-row"><span class="sb-key">Bendera</span><span class="sb-val">${esc(v.flag)}</span></div>` : ''}`;
+  } catch {
+    if (el) el.innerHTML = '<div class="sb-section-title">IDENTITAS GFW</div><div style="padding:8px 16px;font-size:12px;color:var(--text-3)">Gagal memuat.</div>';
+  }
+}
+
+// ── SIDEBAR ───────────────────────────────────────────────────────────────────
+function openSidebar(key) {
+  const s = ships[key]; if (!s) return;
+  closeToolPanel();
+  document.getElementById('sb-traj-btn').onclick = toggleTraj;
+  sidebarKey = key; trajActive = false;
+  sidebarTrajLayer.clearLayers(); historyLayer.clearLayers();
+  document.getElementById('sb-traj-btn').className = 'sb-btn';
+  document.getElementById('sb-traj-btn').textContent = 'Aktifkan Trajectory';
+  document.getElementById('sb-traj-info').textContent = '';
+  renderSidebarBody(s.data);
+  document.getElementById('sidebar').classList.add('open');
+}
+
+function closeSidebar() {
+  if (sidebarKey && ships[sidebarKey]?.data?.source === 'gfw')
+    ships[sidebarKey].marker.setIcon(makeGfwIcon(ships[sidebarKey].data.type, false));
+  if (trajActive) showAllMarkers();
+  sidebarKey = null; trajActive = false;
+  sidebarTrajLayer.clearLayers(); historyLayer.clearLayers();
+  document.getElementById('sidebar').classList.remove('open');
+}
+
+function zoomTo() {
+  if (!sidebarKey || !ships[sidebarKey]) return;
+  const d = ships[sidebarKey].data;
+  map.setView([d.lat, d.lon], 12, { animate:true });
+}
+
+const fmt    = v => v != null ? String(v) : '—';
+const fmtD   = v => v ? new Date(v).toLocaleString('id-ID') : '—';
+const fmtDur = h => { if (!h) return '—'; const hh=Math.floor(h), mm=Math.round((h-hh)*60); return `${hh}j ${mm}m`; };
+const fmtDateShort = s => { const d=new Date(s); return d.toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}); };
+
+function renderSidebarGfw(d) {
+  const c = gfwColor(d.type);
+  document.getElementById('sidebar-title').textContent = d.name || 'Unknown';
+  document.getElementById('sidebar-sub').textContent   = d.flag ? `Bendera: ${d.flag}` : '';
+
+  const same = gfwEvents.filter(ev =>
+    ev.key !== d.key && ((d.vesselId && ev.vesselId === d.vesselId) || (d.mmsi && ev.mmsi && String(ev.mmsi)===String(d.mmsi)))
+  ).sort((a,b) => new Date(b.start)-new Date(a.start));
+
+  const histHtml = same.length
+    ? same.map(ev => { const ec=gfwColor(ev.type); return `
+        <div class="hist-item" onclick="focusHistEvent(${ev.lat},${ev.lon})">
+          <span class="hist-date">${fmtD(ev.start)}</span>
+          <span class="hist-badge" style="background:${ec}22;color:${ec};border:1px solid ${ec}33">${esc(ev.type)}</span>
+        </div>`; }).join('')
+    : '<div style="padding:8px 16px;font-size:11px;color:var(--text-3)">Tidak ada event lain dalam 30 hari.</div>';
+
+  document.getElementById('sidebar-body').innerHTML = `
+    <div class="sb-section">
+      <div class="sb-section-title">
+        EVENT
+        <span class="sb-section-badge" style="background:${c}22;color:${c};border:1px solid ${c}44">${esc(d.type||'—')}</span>
+      </div>
+      <div class="sb-row"><span class="sb-key">Durasi</span><span class="sb-val">${fmtDur(d.durationHours)}</span></div>
+      <div class="sb-row"><span class="sb-key">Mulai</span><span class="sb-val">${fmtD(d.start)}</span></div>
+      <div class="sb-row"><span class="sb-key">Selesai</span><span class="sb-val">${fmtD(d.end)}</span></div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-section-title">POSISI</div>
+      <div class="sb-row"><span class="sb-key">Lintang</span><span class="sb-val mono">${d.lat.toFixed(6)}°</span></div>
+      <div class="sb-row"><span class="sb-key">Bujur</span><span class="sb-val mono">${d.lon.toFixed(6)}°</span></div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-section-title">DATA AIS</div>
+      <div class="sb-row"><span class="sb-key">MMSI</span><span class="sb-val mono">${fmt(d.mmsi)}</span></div>
+      <div class="sb-row"><span class="sb-key">Event ID</span><span class="sb-val mono dim" style="font-size:10px">${fmt(d.id)}</span></div>
+    </div>
+    <div class="sb-section" id="sb-identity">
+      <div class="sb-section-title">IDENTITAS GFW</div>
+      <div class="sb-loading"><span class="mini-spin"></span> Memuat dari GFW…</div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-section-title">HISTORY POSISI <span style="color:var(--text-3);font-weight:400;text-transform:none;letter-spacing:0;font-size:11px">${same.length} event lain</span></div>
+      ${histHtml}
+    </div>`;
+}
+
+function renderSidebarBody(d) {
+  if (d.source === 'gfw') { renderSidebarGfw(d); return; }
+  const c = aisColor(d.speed);
+  document.getElementById('sidebar-title').textContent = d.name || 'Unknown';
+  document.getElementById('sidebar-sub').textContent   = d.mmsi ? `MMSI: ${d.mmsi}` : '';
+  document.getElementById('sidebar-body').innerHTML = `
+    <div class="sb-section">
+      <div class="sb-section-title">IDENTITAS</div>
+      <div class="sb-row"><span class="sb-key">MMSI</span><span class="sb-val mono">${fmt(d.mmsi)}</span></div>
+      <div class="sb-row"><span class="sb-key">Tujuan</span><span class="sb-val">${fmt(d.destination)||'—'}</span></div>
+      <div class="sb-row"><span class="sb-key">Status Nav</span><span class="sb-val">${fmt(d.navStatus)}</span></div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-section-title">POSISI & GERAK</div>
+      <div class="sb-row"><span class="sb-key">Lintang</span><span class="sb-val mono">${d.lat.toFixed(6)}°</span></div>
+      <div class="sb-row"><span class="sb-key">Bujur</span><span class="sb-val mono">${d.lon.toFixed(6)}°</span></div>
+      <div class="sb-row"><span class="sb-key">Kecepatan</span>
+        <span class="sb-val"><span style="background:${c}22;color:${c};border:1px solid ${c}33;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700">${fmt(d.speed)} kn</span></span>
+      </div>
+      <div class="sb-row"><span class="sb-key">Course</span><span class="sb-val mono">${fmt(d.course)}°</span></div>
+      <div class="sb-row"><span class="sb-key">Heading</span><span class="sb-val mono">${fmt(d.heading)}°</span></div>
+      <div class="sb-row"><span class="sb-key">Update</span><span class="sb-val dim" style="font-size:11px">${fmt(d.waktu)}</span></div>
+      <div class="sb-row"><span class="sb-key">Trail AIS</span><span class="sb-val">${(ships[sidebarKey]?.trail?.length||0)} titik</span></div>
+    </div>`;
+}
+
+function focusHistEvent(lat, lon) { map.setView([lat, lon], 10, { animate:true }); }
+
+// ── SIDEBAR TRACK HISTORY ─────────────────────────────────────────────────────
+function renderSidebarTrack(track) {
+  // Hapus section lama jika ada
+  const old = document.getElementById('sb-track-section');
+  if (old) old.remove();
+
+  if (!track.length) return;
+
+  // Urutkan ascending (terlama → terbaru) untuk tampilan kronologis
+  const sorted = [...track].sort((a, b) => {
+    if (!a.timestamp) return 1;
+    if (!b.timestamp) return -1;
+    return new Date(a.timestamp) - new Date(b.timestamp);
+  });
+
+  const rows = sorted.map((p, i) => {
+    const ts  = p.timestamp ? new Date(p.timestamp).toLocaleString('id-ID', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+    const spd = p.speed != null ? `${Number(p.speed).toFixed(1)} kn` : '—';
+    const c   = aisColor(p.speed != null ? Number(p.speed) : null);
+    const isFirst = i === 0;
+    const isLast  = i === sorted.length - 1;
+    const label   = isFirst ? 'Start' : isLast ? 'End' : null;
+    return `<div class="track-row" onclick="map.setView([${p.lat},${p.lon}],13,{animate:true})">
+      <div class="track-row-left">
+        <span class="track-dot" style="background:${isFirst?'#3fb950':isLast?'#f85149':c}"></span>
+        <div>
+          <div class="track-time">${ts}${label?` <span class="track-label">${label}</span>`:''}</div>
+          <div class="track-coord">${p.lat.toFixed(5)}°, ${p.lon.toFixed(5)}°</div>
+        </div>
+      </div>
+      <span class="track-speed" style="color:${c}">${spd}</span>
+    </div>`;
+  }).join('');
+
+  const section = document.createElement('div');
+  section.id = 'sb-track-section';
+  section.className = 'sb-section';
+  section.innerHTML = `
+    <div class="sb-section-title">
+      RIWAYAT POSISI
+      <span style="color:var(--text-3);font-weight:400;text-transform:none;letter-spacing:0;font-size:11px">${sorted.length} titik</span>
+    </div>
+    <div class="track-list">${rows}</div>`;
+  document.getElementById('sidebar-body').appendChild(section);
+
+  // Scroll ke bawah agar section baru terlihat
+  const body = document.getElementById('sidebar-body');
+  setTimeout(() => body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' }), 80);
+}
+
+// ── MARKER VISIBILITY ─────────────────────────────────────────────────────────
+function hideOtherMarkers() {
+  for (const [k,s] of Object.entries(ships)) { if (k !== sidebarKey) map.removeLayer(s.marker); }
+  historyLayer.clearLayers();
+}
+function showAllMarkers() {
+  for (const s of Object.values(ships)) { if (!map.hasLayer(s.marker)) s.marker.addTo(map); }
+  if (sidebarKey && ships[sidebarKey]) showHistoryMarkers(ships[sidebarKey].data);
+}
+
+// ── TRAJECTORY ────────────────────────────────────────────────────────────────
+async function toggleTraj() {
+  if (!sidebarKey || !ships[sidebarKey]) return;
+  const btn  = document.getElementById('sb-traj-btn');
+  const info = document.getElementById('sb-traj-info');
+  const s    = ships[sidebarKey];
+
+  if (trajActive) {
+    sidebarTrajLayer.clearLayers(); trajActive = false;
+    showAllMarkers();
+    btn.className = 'sb-btn'; btn.textContent = 'Tampilkan Trajectory';
+    info.textContent = '';
+    const ts = document.getElementById('sb-track-section'); if (ts) ts.remove();
+    return;
+  }
+  if (s.data.source === 'ais') {
+    const trail = s.trail || [];
+    if (trail.length < 2) { info.textContent = 'Trail belum cukup (min 2 titik).'; return; }
+    hideOtherMarkers(); plotSidebarTrail(trail);
+    trajActive = true; btn.className = 'sb-btn traj-on'; btn.textContent = 'Sembunyikan Trajectory';
+    info.textContent = `Trail AIS · ${trail.length} titik`; return;
+  }
+  if (!s.data.vesselId) { info.textContent = 'vessel_id tidak tersedia.'; return; }
+  btn.className = 'sb-btn loading'; btn.textContent = 'Mengambil…'; info.textContent = '';
+  try {
+    const today = new Date().toISOString().slice(0,10);
+    const r = await fetch(`/api/gfw/track?vessel_id=${encodeURIComponent(s.data.vesselId)}&start_date=2012-01-01&end_date=${today}`);
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    const track = j.track || [];
+    if (track.length >= 2) {
+      hideOtherMarkers(); plotSidebarTrail(track.map(p=>[p.lat,p.lon]), track);
+      trajActive = true; btn.className = 'sb-btn traj-on'; btn.textContent = 'Sembunyikan Trajectory';
+      info.textContent = `${j.count} titik · ${j.source === 'events' ? 'dari event history' : 'raw track'}`;
+      renderSidebarTrack(track);
+    } else {
+      btn.className = 'sb-btn'; btn.textContent = 'Tampilkan Trajectory';
+      info.textContent = 'Tidak ada data trajectory.';
+    }
+  } catch {
+    btn.className = 'sb-btn'; btn.textContent = 'Tampilkan Trajectory';
+    info.textContent = 'Trajectory tidak tersedia.';
+  }
+}
+
+function plotSidebarTrail(latlngs, trackData = []) {
+  sidebarTrajLayer.clearLayers(); if (!latlngs.length) return;
+  if (latlngs.length >= 2)
+    L.polyline(latlngs, { color:'#f85149', weight:2, opacity:.85 }).addTo(sidebarTrajLayer);
+  L.circleMarker(latlngs[0], { radius:5, color:'#3fb950', fillColor:'#3fb950', fillOpacity:1 }).bindPopup('Start').addTo(sidebarTrajLayer);
+  L.circleMarker(latlngs[latlngs.length-1], { radius:5, color:'#f85149', fillColor:'#f85149', fillOpacity:1 }).bindPopup('End').addTo(sidebarTrajLayer);
+  const step = Math.max(1, Math.ceil(latlngs.length / 60));
+  latlngs.forEach((ll,i) => {
+    if (i%step!==0 || i===0 || i===latlngs.length-1) return;
+    const p = trackData[i]||{};
+    L.circleMarker(ll, { radius:2.5, color:'#d29922', fillColor:'#d29922', fillOpacity:.8 })
+      .bindPopup(`${p.timestamp||''}<br>Speed: ${p.speed??'—'} kn`).addTo(sidebarTrajLayer);
+  });
+  try { map.fitBounds(L.polyline(latlngs).getBounds(), { padding:[40,80] }); } catch {}
+}
+
+// ── TOOL PANEL ────────────────────────────────────────────────────────────────
+function togglePanel() {
+  const p = document.getElementById('tool-panel');
+  const show = getComputedStyle(p).display !== 'block';
+  p.style.display = show ? 'block' : 'none';
+  document.getElementById('btn-tools').classList.toggle('active', show);
+  if (show && !queryCatalogLoaded) loadQueryCatalog();
+}
+function closeToolPanel() {
+  const p = document.getElementById('tool-panel');
+  if (p) p.style.display = 'none';
+  document.getElementById('btn-tools')?.classList.remove('active');
+}
+function switchTab(tab) {
+  document.getElementById('queries-view').style.display = tab==='queries'?'block':'none';
+  document.getElementById('track-view').style.display   = tab==='track'?'block':'none';
+  document.getElementById('tab-queries').classList.toggle('active', tab==='queries');
+  document.getElementById('tab-track').classList.toggle('active',   tab==='track');
+  if (tab==='queries' && !queryCatalogLoaded) loadQueryCatalog();
+}
+async function loadQueryCatalog() {
+  const list = document.getElementById('query-list');
+  list.textContent = 'Memuat…';
+  try {
+    const r = await fetch('/api/gfwr/queries');
+    const d = await r.json();
+    queryCatalogLoaded = true;
+    list.innerHTML = (d.queries||[]).map(q => `
+      <div class="query-item">
+        <div class="query-item-name">${esc(q.name)}</div>
+        <div class="query-item-meta">${esc(q.category)} · ${esc(q.endpoint)}<br>
+        Dataset: ${esc((q.datasets||[]).join(', ')||'—')}<br>
+        ${q.description ? esc(q.description) : ''}</div>
+      </div>`).join('');
+  } catch (err) { list.textContent = 'Gagal memuat: ' + err.message; }
+}
+function setDefaultDates() {
+  const end=new Date(), start=new Date(end);
+  start.setDate(start.getDate()-30);
+  document.getElementById('track-start').value = start.toISOString().slice(0,10);
+  document.getElementById('track-end').value   = end.toISOString().slice(0,10);
+}
+async function searchVessel() {
+  const q=document.getElementById('vessel-query').value.trim(), el=document.getElementById('vessel-results');
+  if (!q) return;
+  selectedVessel=null; document.getElementById('load-track').disabled=true;
+  el.innerHTML='<div style="color:var(--text-2);font-size:12px">Mencari…</div>';
+  try {
+    const r=await fetch(`/api/gfw/vessels/search?query=${encodeURIComponent(q)}&limit=8`);
+    const d=await r.json(); if (d.error) throw new Error(d.error);
+    if (!d.entries?.length) { el.innerHTML='<div style="color:var(--text-2);font-size:12px">Tidak ada hasil.</div>'; return; }
+    window.__vr=d.entries;
+    el.innerHTML=d.entries.map((v,i)=>`
+      <button class="vessel-item" onclick="selectVessel(${i})">
+        <div class="vessel-item-name">${esc(v.ship_name||'Unknown')}</div>
+        <div class="vessel-item-meta">MMSI: ${esc(v.mmsi||'—')} · IMO: ${esc(v.imo||'—')} · ${esc(v.flag||'—')}</div>
+      </button>`).join('');
+  } catch (err) { el.innerHTML=`<div style="color:var(--text-2);font-size:12px">${esc(err.message)}</div>`; }
+}
+function selectVessel(i) {
+  selectedVessel=(window.__vr||[])[i];
+  document.querySelectorAll('.vessel-item').forEach((el,j)=>el.classList.toggle('active',i===j));
+  document.getElementById('load-track').disabled=!selectedVessel?.vessel_id;
+  document.getElementById('track-summary').textContent=selectedVessel?.vessel_id?`Dipilih: ${selectedVessel.ship_name||'Unknown'}`:'vessel_id tidak tersedia';
+}
+async function loadTrack() {
+  if (!selectedVessel?.vessel_id) return;
+  const start=document.getElementById('track-start').value, end=document.getElementById('track-end').value;
+  const sum=document.getElementById('track-summary');
+  sum.textContent='Mengambil trajectory…';
+  try {
+    const r=await fetch(`/api/gfw/track?vessel_id=${encodeURIComponent(selectedVessel.vessel_id)}&start_date=${start}&end_date=${end}`);
+    const d=await r.json(); if (d.error) throw new Error(d.error);
+    plotTraj(d.track||[]);
+    sum.textContent=`${d.count} titik · ${d.source} · ${start} → ${end}`;
+  } catch (err) { sum.textContent='Error: '+err.message; }
+}
+function plotTraj(track) {
+  trajLayer.clearLayers(); if (!track.length) return;
+  const ll=track.map(p=>[p.lat,p.lon]);
+  const line=L.polyline(ll,{color:'#f85149',weight:2.5,opacity:.9}).addTo(trajLayer);
+  L.circleMarker(ll[0],{radius:5,color:'#3fb950',fillColor:'#3fb950',fillOpacity:1}).bindPopup('Start').addTo(trajLayer);
+  L.circleMarker(ll[ll.length-1],{radius:5,color:'#f85149',fillColor:'#f85149',fillOpacity:1}).bindPopup('End').addTo(trajLayer);
+  const step=Math.max(1,Math.ceil(track.length/80));
+  track.forEach((p,i)=>{ if(i%step!==0) return; L.circleMarker([p.lat,p.lon],{radius:2,color:'#d29922',fillColor:'#d29922',fillOpacity:.7}).bindPopup(`${p.timestamp||''}<br>Speed: ${p.speed??'—'} kn`).addTo(trajLayer); });
+  map.fitBounds(line.getBounds(),{padding:[30,30]});
+}
+function clearTraj() { trajLayer.clearLayers(); document.getElementById('track-summary').textContent=''; }
+
+// ── AIS KEY MODAL ─────────────────────────────────────────────────────────────
+
+// ── UTILS ──────────────────────────────────────────────────────────────────────
+function esc(v) { return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// Auto-prune AIS
+setInterval(()=>{
+  if (mode!=='ais') return;
+  const cut=Date.now()-10*60_000;
+  for (const [k,s] of Object.entries(ships)) { if (s.lastSeen<cut) { map.removeLayer(s.marker); delete ships[k]; } }
+  document.getElementById('ship-count').textContent=Object.keys(ships).length;
+},60_000);
+
+// ── AI INFERENCE ──────────────────────────────────────────────────────────────
+let aiResults  = [];
+let aiRawTrack = [];
+const aiLayer      = L.layerGroup().addTo(map);
+const aiTrackLayer = L.layerGroup().addTo(map);
+
+function gearShortLabel(label) {
+  const m = {
+    'drifting_longlines': 'Drift Longline',
+    'set_longlines':      'Set Longline',
+    'set_gillnets':       'Gillnet',
+    'trawlers':           'Trawler',
+    'trollers':           'Troller',
+    'purse_seines':       'Purse Seine',
+    'pots_and_traps':     'Pots & Traps',
+    'squid_jig':          'Squid Jig',
+    'other_fishing':      'Other Fishing',
+    'fishing':            'Fishing',
+  };
+  return m[(label||'').toLowerCase()] || (label || '?');
+}
+
+function gearColor(label) {
+  const m = {
+    'drifting_longlines': '#4493f8',
+    'set_longlines':      '#d29922',
+    'set_gillnets':       '#a371f7',
+    'trawlers':           '#e3901a',
+    'trollers':           '#3fb950',
+    'purse_seines':       '#39c5cf',
+    'pots_and_traps':     '#f85149',
+    'squid_jig':          '#f7c948',
+    'other_fishing':      '#8b949e',
+    'fishing':            '#3fb950',
+  };
+  return m[(label||'').toLowerCase()] || '#8b949e';
+}
+function spoofColor(label) { return (label||'').toLowerCase().includes('spoof') ? '#f85149' : '#3fb950'; }
+function darkColor(label)  { return (label||'').toLowerCase().includes('dark')  ? '#e3901a' : '#3fb950'; }
+
+function makeAiIcon(vessel, selected) {
+  const gear  = vessel.tasks?.gear;
+  const spoof = vessel.tasks?.spoofing;
+  const dark  = vessel.tasks?.godark;
+  const alert = (spoof?.pred_label||'').toLowerCase().includes('spoof') ||
+                (dark?.pred_label||'').toLowerCase().includes('dark');
+  const c  = gear ? gearColor(gear.pred_label) : '#8b949e';
+  const sz = selected ? 18 : 13;
+  const ring = alert
+    ? `border:2px solid #f85149;box-shadow:0 0 8px #f8514988;`
+    : `border:2px solid #090c10;`;
+  return L.divIcon({
+    className:'',
+    html:`<div style="width:30px;height:30px;display:flex;align-items:center;justify-content:center">
+      <div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${c};${ring}transition:.12s"></div>
+    </div>`,
+    iconSize:[30,30], iconAnchor:[15,15],
+  });
+}
+
+let _aiCounterTimer = null;
+function updateAiCounters() {
+  if (mode !== 'ai') return;
+  if (_aiCounterTimer) return;
+  _aiCounterTimer = setTimeout(() => {
+    _aiCounterTimer = null;
+    const gfwEl = document.getElementById('ai-cnt-gfw');
+    const aisEl = document.getElementById('ai-cnt-ais');
+    if (gfwEl) gfwEl.textContent = gfwEvents.length || '0';
+    if (aisEl) {
+      const n = Object.values(ships).filter(s => s.data.source === 'ais').length;
+      aisEl.textContent = n || '0';
+    }
+  }, 500);
+}
+
+
+const INFERENCE_LOOP_DELAY_MS = 30_000;
+const AI_CACHE_KEY = 'ai-inference-cache-v1';
+let inferenceLoopStarted = false;
+let inferenceLoopTimer = null;
+let inferenceInFlight = false;
+let aiInferenceMessage = 'Memuat cache inference...';
+
+async function checkInferenceServer() {
+  try {
+    const r = await fetch('/api/inference/health', { signal: AbortSignal.timeout(8000) });
+    return r.ok;
+  } catch { return false; }
+}
+
+function setInferenceMessage(message) {
+  aiInferenceMessage = message;
+  document.querySelectorAll('#ai-status').forEach(el => {
+    el.textContent = message;
+  });
+}
+
+function saveInferenceCache() {
+  try {
+    localStorage.setItem(AI_CACHE_KEY, JSON.stringify({
+      t: Date.now(),
+      message: aiInferenceMessage,
+      results: aiResults,
+      rawTrack: aiRawTrack,
+    }));
+  } catch {}
+}
+
+function loadInferenceCache() {
+  try {
+    const raw = localStorage.getItem(AI_CACHE_KEY);
+    if (!raw) return;
+    const cached = JSON.parse(raw);
+    if (!Array.isArray(cached.results)) return;
+    aiResults = cached.results;
+    aiRawTrack = Array.isArray(cached.rawTrack) ? cached.rawTrack : [];
+    aiInferenceMessage = cached.message || `${aiResults.length} kapal dari cache lokal.`;
+  } catch {}
+}
+
+function renderInferenceState() {
+  setInferenceMessage(aiInferenceMessage);
+  const resultEls = [...document.querySelectorAll('#ai-results')];
+  if (!resultEls.length) return;
+
+  if (!aiResults.length) {
+    const emptyHtml = '<div style="color:var(--text-3);font-size:12px">Inference background sedang berjalan. Hasil akan muncul otomatis.</div>';
+    resultEls.forEach(el => { el.innerHTML = emptyHtml; });
+    return;
+  }
+
+  renderAiResults(aiResults);
+  plotAiMarkers(aiResults);
+}
+
+function mergeInferenceData(data) {
+  const byMmsi = new Map(aiResults.map(v => [String(v.mmsi), v]));
+  (data.vessels || []).forEach(v => {
+    if (v?.mmsi != null) byMmsi.set(String(v.mmsi), v);
+  });
+  aiResults = [...byMmsi.values()];
+
+  const trackByKey = new Map(aiRawTrack.map(p => [`${p.mmsi}|${p.timestamp}|${p.lat}|${p.lon}`, p]));
+  (data.raw_track || []).forEach(p => {
+    if (p?.mmsi == null || p?.timestamp == null) return;
+    trackByKey.set(`${p.mmsi}|${p.timestamp}|${p.lat}|${p.lon}`, p);
+  });
+  aiRawTrack = [...trackByKey.values()];
+}
+
+async function runInference() {
+  if (inferenceInFlight) return;
+  inferenceInFlight = true;
+
+  setInferenceMessage('Memeriksa server inference…');
+  const serverOk = await checkInferenceServer();
+  if (!serverOk) {
+    setInferenceMessage('Server inference tidak berjalan atau sedang cold start.');
+    inferenceInFlight = false;
+    return;
+  }
+
+  try {
+    const { start, end } = gfwDateRange();
+    const params = new URLSearchParams({
+      start_date: start,
+      end_date: end,
+      max_vessels: '0',
+      task: 'all',
+    });
+
+    setInferenceMessage('Menghubungi server inference…');
+    const r = await fetch(`/api/inference/gfw/stream?${params}`);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }));
+      throw new Error(err.detail || JSON.stringify(err));
+    }
+
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let nTotal = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // simpan baris terakhir yang mungkin belum lengkap
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let data;
+        try { data = JSON.parse(line.slice(6)); } catch { continue; }
+
+        if (data.type === 'discovered') {
+          nTotal = data.n_total;
+          setInferenceMessage(`Ditemukan ${nTotal} kapal, memulai fetch & inference…`);
+
+        } else if (data.type === 'vessel' && data.vessel) {
+          mergeInferenceData({ vessels: [data.vessel], raw_track: data.raw_track || [] });
+          renderInferenceState();
+          setInferenceMessage(`Inference ${data.vessel_index}/${nTotal} — ${data.vessel.mmsi} selesai. Total ${aiResults.length} kapal.`);
+
+        } else if (data.type === 'vessel_skip') {
+          setInferenceMessage(`Inference ${data.vessel_index}/${nTotal} — ${data.mmsi} tidak ada data.`);
+
+        } else if (data.type === 'done') {
+          setInferenceMessage(`Selesai ${data.elapsed_s}s — ${data.n_vessels} kapal diproses. Total ${aiResults.length} kapal.`);
+
+        } else if (data.type === 'error') {
+          throw new Error(data.error);
+        }
+      }
+    }
+  } catch (err) {
+    setInferenceMessage('Error: ' + err.message);
+    console.error('[inference]', err);
+  } finally {
+    inferenceInFlight = false;
+  }
+}
+
+async function syncInferenceResults() {
+  if (inferenceInFlight) return;
+  inferenceInFlight = true;
+
+  try {
+    if (!aiResults.length) setInferenceMessage('Mengambil hasil inference terbaru dari backend...');
+    const r = await fetch('/api/inference/batch/latest');
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }));
+      throw new Error(err.detail || JSON.stringify(err));
+    }
+
+    const data = await r.json();
+    mergeInferenceData(data);
+    saveInferenceCache();
+    renderInferenceState();
+    setInferenceMessage(`${data.vessels?.length || 0} kapal dari backend - total tampil ${aiResults.length} kapal.`);
+    saveInferenceCache();
+  } catch (err) {
+    setInferenceMessage('Error: ' + err.message);
+    console.error('[inference-sync]', err);
+  } finally {
+    inferenceInFlight = false;
+  }
+}
+
+function startInferenceLoop() {
+  if (inferenceLoopStarted) return;
+  inferenceLoopStarted = true;
+
+  const tick = async () => {
+    await syncInferenceResults();
+    inferenceLoopTimer = setTimeout(tick, INFERENCE_LOOP_DELAY_MS);
+  };
+
+  tick();
+}
+
+function renderAiResults(vessels) {
+  const els = [...document.querySelectorAll('#ai-results')];
+  if (!els.length) return;
+  if (!vessels.length) {
+    const emptyHtml = '<div style="color:var(--text-3);font-size:12px">Tidak ada hasil. Coba perluas rentang tanggal.</div>';
+    els.forEach(el => { el.innerHTML = emptyHtml; });
+    return;
+  }
+  const html = vessels.map((v, i) => {
+    const gear  = v.tasks?.gear;
+    const spoof = v.tasks?.spoofing;
+    const dark  = v.tasks?.godark;
+    const gc    = gear ? gearColor(gear.pred_label) : '#8b949e';
+
+    const gearHtml = gear ? `
+      <div class="ai-task-row">
+        <span class="ai-task-label">Gear</span>
+        <span class="ai-task-pred" style="color:${gc}">${esc(gear.pred_label)}</span>
+      </div>
+      <div class="ai-conf-bar"><div class="ai-conf-fill" style="width:${Math.round(gear.confidence*100)}%;background:${gc}"></div></div>` : '';
+
+    const spoofAlert = (spoof?.pred_label||'').toLowerCase().includes('spoof');
+    const darkAlert  = (dark?.pred_label||'').toLowerCase().includes('dark');
+
+    const alertHtml = (spoofAlert || darkAlert) ? `
+      <div class="ai-alert-bar" style="background:#f8514922;color:#f85149;border:1px solid #f8514944">
+        <span>⚠</span>
+        <span>${spoofAlert ? 'Spoofing terdeteksi' : ''}${spoofAlert && darkAlert ? ' · ' : ''}${darkAlert ? 'Go Dark terdeteksi' : ''}</span>
+      </div>` : '';
+
+    const spoofHtml = spoof && !spoofAlert ? `
+      <div class="ai-task-row" style="margin-top:3px">
+        <span class="ai-task-label">Spoofing</span>
+        <span class="ai-badge" style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044">${esc(spoof.pred_label)}</span>
+      </div>` : '';
+
+    const darkHtml = dark && !darkAlert ? `
+      <div class="ai-task-row">
+        <span class="ai-task-label">Go Dark</span>
+        <span class="ai-badge" style="background:#3fb95022;color:#3fb950;border:1px solid #3fb95044">${esc(dark.pred_label)}</span>
+      </div>` : '';
+
+    const posText = v.last_lat != null ? `${v.last_lat.toFixed(4)}°, ${v.last_lon.toFixed(4)}°` : 'Posisi tidak tersedia';
+
+    return `<div class="ai-vessel-card" onclick="focusAiVessel(${i})">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+        <span class="ai-vessel-name">MMSI: ${esc(v.mmsi)}</span>
+        <div style="display:flex;gap:4px;align-items:center">
+          <button onclick="event.stopPropagation();plotAiTrajectory('${esc(v.mmsi)}')"
+            style="font-size:10px;padding:1px 6px;border-radius:3px;border:1px solid var(--border-2);
+                   background:var(--surface-2);color:var(--blue);cursor:pointer"
+            title="Tampilkan trajectory">Track</button>
+          <span style="font-size:10px;color:var(--text-3)">${i+1}/${vessels.length}</span>
+        </div>
+      </div>
+      <div class="ai-vessel-mmsi">${posText}</div>
+      ${gearHtml}${spoofHtml}${darkHtml}${alertHtml}
+    </div>`;
+  }).join('');
+  els.forEach(el => { el.innerHTML = html; });
+}
+
+function plotAiMarkers(vessels) {
+  aiLayer.clearLayers();
+  vessels.forEach((v, i) => {
+    if (v.last_lat == null || v.last_lon == null) return;
+    const icon   = makeAiIcon(v, false);
+    const marker = L.marker([v.last_lat, v.last_lon], { icon }).addTo(aiLayer);
+
+    const gear  = v.tasks?.gear;
+    const spoof = v.tasks?.spoofing;
+    const dark  = v.tasks?.godark;
+    const spoofAlert = (spoof?.pred_label||'').toLowerCase().includes('spoof');
+    const darkAlert  = (dark?.pred_label||'').toLowerCase().includes('dark');
+    const gc = gear ? gearColor(gear.pred_label) : '#8b949e';
+
+    // ── Permanent label di peta ───────────────────────────────────────
+    let tipHtml = `<div style="font-weight:700;color:#cdd9e5;margin-bottom:2px">MMSI ${esc(v.mmsi)}</div>`;
+    if (gear) {
+      const pct = Math.round(gear.confidence * 100);
+      tipHtml += `<div style="color:${gc};font-weight:700">${esc(gearShortLabel(gear.pred_label))} <span style="color:var(--text-3);font-weight:400">${pct}%</span></div>`;
+    }
+    if (spoofAlert) tipHtml += `<div style="color:#f85149;font-weight:700;margin-top:1px">⚠ Spoofing</div>`;
+    if (darkAlert)  tipHtml += `<div style="color:#e3901a;font-weight:700;margin-top:1px">⚠ Go Dark</div>`;
+
+    marker.bindTooltip(tipHtml, {
+      permanent: true,
+      direction: 'right',
+      offset: [8, 0],
+      className: 'ai-map-tip',
+    });
+
+    // ── Popup detail saat diklik ──────────────────────────────────────
+    let popup = `<div class="popup-name">MMSI: ${esc(v.mmsi)}</div>`;
+    if (gear)  popup += `<div class="popup-row"><span>Gear</span><b style="color:${gc}">${esc(gear.pred_label)}</b></div>`;
+    if (spoof) popup += `<div class="popup-row"><span>Spoofing</span><b style="color:${spoofColor(spoof.pred_label)}">${esc(spoof.pred_label)}</b></div>`;
+    if (dark)  popup += `<div class="popup-row"><span>Go Dark</span><b style="color:${darkColor(dark.pred_label)}">${esc(dark.pred_label)}</b></div>`;
+    popup += `<div class="popup-coord">${v.last_lat.toFixed(4)}°, ${v.last_lon.toFixed(4)}°</div>`;
+    marker.bindPopup(popup, { maxWidth:220 });
+
+    marker.on('click', () => focusAiVessel(i));
+  });
+}
+
+function focusAiVessel(i) {
+  const v = aiResults[i];
+  if (!v || v.last_lat == null) return;
+  map.setView([v.last_lat, v.last_lon], 10, { animate:true });
+  openAiDetail(i);
+  plotAiTrajectory(v.mmsi);
+}
+
+function openAiDetail(i) {
+  const v = aiResults[i];
+  if (!v) return;
+  closeToolPanel();
+  sidebarKey = null;
+  trajActive = false;
+
+  const gear  = v.tasks?.gear;
+  const spoof = v.tasks?.spoofing;
+  const dark  = v.tasks?.godark;
+  const gc    = gear ? gearColor(gear.pred_label) : '#8b949e';
+  const spoofAlert = (spoof?.pred_label||'').toLowerCase().includes('spoof');
+  const darkAlert  = (dark?.pred_label||'').toLowerCase().includes('dark');
+  const trackCount = aiRawTrack.filter(r => String(r.mmsi) === String(v.mmsi)).length;
+
+  document.getElementById('sidebar-title').textContent = v.name || `MMSI: ${v.mmsi}`;
+  document.getElementById('sidebar-sub').textContent = 'AI Inference';
+  document.getElementById('sidebar-body').innerHTML = `
+    <div class="sb-section">
+      <div class="sb-section-title">
+        AI PREDICTION
+        <span class="sb-section-badge" style="background:${gc}22;color:${gc};border:1px solid ${gc}44">${gear ? esc(gearShortLabel(gear.pred_label)) : 'N/A'}</span>
+      </div>
+      ${gear ? `<div class="sb-row"><span class="sb-key">Gear</span><span class="sb-val" style="color:${gc}">${esc(gear.pred_label)} (${Math.round(gear.confidence*100)}%)</span></div>` : ''}
+      ${spoof ? `<div class="sb-row"><span class="sb-key">Spoofing</span><span class="sb-val" style="color:${spoofColor(spoof.pred_label)}">${esc(spoof.pred_label)}${spoof.confidence != null ? ` (${Math.round(spoof.confidence*100)}%)` : ''}</span></div>` : ''}
+      ${dark ? `<div class="sb-row"><span class="sb-key">Go Dark</span><span class="sb-val" style="color:${darkColor(dark.pred_label)}">${esc(dark.pred_label)}${dark.confidence != null ? ` (${Math.round(dark.confidence*100)}%)` : ''}</span></div>` : ''}
+      ${(spoofAlert || darkAlert) ? `<div style="margin:10px 16px;padding:8px 10px;border-radius:4px;background:#f8514922;color:#f85149;border:1px solid #f8514944;font-size:12px;font-weight:700">⚠ ${spoofAlert ? 'Spoofing terdeteksi' : ''}${spoofAlert && darkAlert ? ' · ' : ''}${darkAlert ? 'Go Dark terdeteksi' : ''}</div>` : ''}
+    </div>
+    <div class="sb-section">
+      <div class="sb-section-title">POSISI TERAKHIR</div>
+      <div class="sb-row"><span class="sb-key">Lintang</span><span class="sb-val mono">${v.last_lat != null ? Number(v.last_lat).toFixed(6) + '°' : '—'}</span></div>
+      <div class="sb-row"><span class="sb-key">Bujur</span><span class="sb-val mono">${v.last_lon != null ? Number(v.last_lon).toFixed(6) + '°' : '—'}</span></div>
+    </div>
+    <div class="sb-section">
+      <div class="sb-section-title">DATA AIS</div>
+      <div class="sb-row"><span class="sb-key">MMSI</span><span class="sb-val mono">${esc(String(v.mmsi || '—'))}</span></div>
+      <div class="sb-row"><span class="sb-key">Titik Trajectory</span><span class="sb-val">${trackCount} titik</span></div>
+    </div>`;
+
+  const btn = document.getElementById('sb-traj-btn');
+  btn.className = 'sb-btn';
+  btn.textContent = trackCount >= 2 ? 'Tampilkan Trajectory' : 'Trajectory (N/A)';
+  btn.onclick = () => plotAiTrajectory(v.mmsi);
+  document.getElementById('sb-traj-info').textContent = trackCount >= 2 ? '' : 'Trajectory inference belum tersedia.';
+  document.getElementById('sidebar').classList.add('open');
+}
+
+function openAiDetailByMmsi(mmsi) {
+  const i = aiResults.findIndex(v => String(v.mmsi) === String(mmsi));
+  if (i >= 0) openAiDetail(i);
+}
+
+function aiTrackTimeMs(ts) {
+  if (ts == null || ts === '') return 0;
+  if (typeof ts === 'number') return ts * 1000;
+  const n = Number(ts);
+  if (Number.isFinite(n)) return n * 1000;
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function formatAiTrackTime(ts) {
+  const t = aiTrackTimeMs(ts);
+  return t ? new Date(t).toLocaleString('id-ID') : '';
+}
+
+function plotAiTrajectory(mmsi) {
+  aiTrackLayer.clearLayers();
+  const pts = aiRawTrack
+    .filter(r => String(r.mmsi) === String(mmsi))
+    .filter(r => Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lon)))
+    .sort((a, b) => aiTrackTimeMs(a.timestamp) - aiTrackTimeMs(b.timestamp));
+  if (pts.length < 2) {
+    setInferenceMessage(`Trajectory inference belum tersedia untuk MMSI ${mmsi}.`);
+    return;
+  }
+
+  const latlngs = pts.map(p => [Number(p.lat), Number(p.lon)]);
+  const gear = aiResults.find(v => String(v.mmsi) === String(mmsi))?.tasks?.gear;
+  const color = gear ? gearColor(gear.pred_label) : '#4493f8';
+
+  L.polyline(latlngs, { color, weight: 2.5, opacity: 0.85 }).addTo(aiTrackLayer);
+
+  L.circleMarker(latlngs[0], { radius:5, color:'#3fb950', fillColor:'#3fb950', fillOpacity:1, weight:1.5 })
+    .bindPopup(`<b>Start</b><br>MMSI: ${mmsi}<br>${formatAiTrackTime(pts[0].timestamp)}`)
+    .on('click', () => openAiDetailByMmsi(mmsi))
+    .addTo(aiTrackLayer);
+
+  L.circleMarker(latlngs[latlngs.length-1], { radius:5, color:'#f85149', fillColor:'#f85149', fillOpacity:1, weight:1.5 })
+    .bindPopup(`<b>End</b><br>MMSI: ${mmsi}<br>${formatAiTrackTime(pts[pts.length-1].timestamp)}`)
+    .on('click', () => openAiDetailByMmsi(mmsi))
+    .addTo(aiTrackLayer);
+
+  setInferenceMessage(`${pts.length} titik trajectory inference untuk MMSI ${mmsi}.`);
+  map.fitBounds(L.latLngBounds(latlngs), { padding:[60,60], maxZoom:12 });
+}
+
+// ── INIT ───────────────────────────────────────────────────────────────────────
+loadInferenceCache();
+setDefaultDates();
+setStatsMode('gfw');
+loadGfw();
+startAis();
+startInferenceLoop();
+</script>
+</body>
+</html>
