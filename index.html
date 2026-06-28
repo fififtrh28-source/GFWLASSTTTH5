@@ -34,7 +34,7 @@
     }
     * { margin:0; padding:0; box-sizing:border-box; }
     body { background:var(--bg); font-family:'Segoe UI',system-ui,-apple-system,sans-serif; color:var(--text); overflow:hidden; font-size:13px; }
-    #map { position:fixed; inset:0; background:var(--bg); z-index:0; }
+    #map { position:fixed; inset:0; background:var(--bg); z-index:1; }
 
     /* ── TOPBAR ─────────────────────────────────────────────────────────── */
     #topbar {
@@ -108,14 +108,14 @@
 
     /* ── STATS PANEL (kiri atas) ──────────────────────────────────────────── */
     #stats-panel {
-      position:fixed; top:calc(var(--topbar-h) + 12px); left:12px;
+      position:fixed; top:calc(var(--topbar-h) + 16px); left:16px;
       width:300px; background:rgba(10,26,47,.94); border:1px solid var(--border);
-      border-radius:var(--radius); z-index:800; backdrop-filter:blur(12px);
+      border-radius:var(--radius); z-index:700; backdrop-filter:blur(12px);
       overflow:hidden; transition:width .2s ease;
     }
     #stats-panel.ai-mode {
-      width:400px;
-      max-height:calc(100vh - var(--topbar-h) - 60px);
+      width:340px;
+      max-height:min(calc(100vh - 210px), calc(70vh - 140px));
       overflow-y:auto;
     }
     #stats-panel.ai-mode::-webkit-scrollbar { width:4px; }
@@ -148,11 +148,29 @@
     .ais-stat-val   { font-size:18px; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
 
     /* ── LEGEND (kiri bawah) ─────────────────────────────────────────────── */
-    #legend {
-      position:fixed; bottom:24px; left:12px;
+    .legend-toggle {
+      position:fixed; left:16px; bottom:20px;
+      z-index:860; background:rgba(10,26,47,.96);
+      border:1px solid var(--border-2); border-radius:var(--radius);
+      color:var(--text); padding:9px 14px; font-size:12px;
+      font-weight:700; letter-spacing:.04em; cursor:pointer;
+      backdrop-filter:blur(12px);
+    }
+    .legend-toggle:hover,
+    .legend-toggle.active {
+      color:var(--blue); border-color:var(--blue); background:var(--blue-dim);
+    }
+    .legend-panel {
+      position:fixed; bottom:64px; left:16px;
+      width:300px; max-height:30vh; overflow-y:auto;
       background:rgba(10,26,47,.94); border:1px solid var(--border);
-      border-radius:var(--radius); z-index:800; backdrop-filter:blur(12px);
-      padding:20px 22px; font-size:15px; line-height:2.2; min-width:220px;
+      border-radius:var(--radius); z-index:850; backdrop-filter:blur(12px);
+      padding:16px 18px; font-size:15px; line-height:2.05;
+    }
+    .legend-panel::-webkit-scrollbar { width:4px; }
+    .legend-panel::-webkit-scrollbar-thumb { background:var(--border-2); border-radius:2px; }
+    .legend-panel[hidden] {
+      display:none;
     }
     .leg-title { font-size:12px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-3); display:block; margin-bottom:10px; }
     .leg-row { display:flex; align-items:center; gap:12px; }
@@ -256,6 +274,10 @@
     .sb-val.mono { font-family:'Cascadia Code','Consolas',monospace; font-size:11px; }
     .sb-val.dim  { color:var(--text-2); font-weight:400; }
     .sb-loading  { padding:10px 16px; font-size:11px; color:var(--text-3); display:flex; align-items:center; gap:6px; }
+    .sb-note { padding:8px 16px; font-size:11px; color:var(--text-3); line-height:1.45; }
+    .sar-img-wrap { padding:0 16px 12px; }
+    .sar-img-title { font-size:10px; color:var(--text-3); margin:6px 0 4px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+    .sar-img { width:100%; max-height:220px; object-fit:contain; border:1px solid var(--border); border-radius:4px; background:#05070a; }
 
     /* History list */
     .hist-item {
@@ -470,6 +492,7 @@
     <span id="last-update">—</span>
   </div>
   <div class="tb-actions">
+    <button class="tb-btn active" id="btn-local-kalman" onclick="toggleLocalKalman()">Kalman Lokal</button>
     <button class="tb-btn" id="btn-tools" onclick="togglePanel()">Query & Track</button>
   </div>
 </header>
@@ -517,7 +540,10 @@
 </div>
 
 <!-- LEGEND -->
-<div id="legend">
+<button id="legend-toggle" class="legend-toggle" type="button" aria-controls="legend" aria-expanded="false" onclick="toggleLegend()">
+  Legend
+</button>
+<div id="legend" class="legend-panel" hidden>
   <span class="leg-title">Tipe Event</span>
   <div class="leg-row"><span class="leg-dot" style="background:var(--green)"></span><span class="leg-label">Fishing</span></div>
   <div class="leg-row"><span class="leg-dot" style="background:var(--orange)"></span><span class="leg-label">Encounter</span></div>
@@ -607,6 +633,7 @@ let   gfwRangeLabel  = '—';
 const trajLayer        = L.layerGroup().addTo(map);
 const sidebarTrajLayer = L.layerGroup().addTo(map);
 const historyLayer     = L.layerGroup().addTo(map);
+const localKalmanLayer = L.layerGroup().addTo(map);
 
 let mode               = 'gfw';
 let msgCount           = 0;
@@ -617,6 +644,16 @@ let sidebarKey         = null;
 let trajActive         = false;
 let queryCatalogLoaded = false;
 let selectedVessel     = null;
+let localKalmanData    = null;
+let localKalmanVisible = true;
+let integrationRowsLoaded = false;
+let integrationLoadPromise = null;
+let integrationCandidates = [];
+let integrationKalmanRows = [];
+let integrationSummaryRows = [];
+let integrationTrajectoryRows = [];
+let integrationExampleRows = [];
+let sidebarFocusLatLng = null;
 
 const GFW_CACHE_KEY = 'gfw-events-cache-v7';
 const GFW_CACHE_TTL = 10 * 60 * 1000;
@@ -626,6 +663,27 @@ const AIS_BBOXES    = [
   [[ 1.0, 99.0],[ 6.0,104.0]],
   [[-8.0,112.0],[-6.5,113.5]],
 ];
+
+const API_BASE =
+  location.hostname === '127.0.0.1' && location.port === '8000'
+    ? 'http://127.0.0.1:5173'
+    : '';
+function apiUrl(path) {
+  return `${API_BASE}${path}`;
+}
+
+const INTEGRATION_DATA_FILES = {
+  // Detail panel reads existing AIS-SAR/Kalman/candidate outputs only.
+  // It does not call FINAL_4_PIPELINE_MODELS.h5 or any other H5 model.
+  candidates: 'KAPAL YG TERDETEKSI/scene_candidates_godark_spoofing_transshipment.csv',
+  summary: 'KAPAL YG TERDETEKSI/scene_candidates_summary.csv',
+  trajectory: 'new/metadata/ais_trajectory_points_raw_vs_kalman.csv',
+  example25: 'Dataset_Test_Enriched/Dataset_Test_Enriched_EEZ_Indonesia/trajectory_outputs_25seq_windows_reference_style/ais_kalman_25seq_per_mmsi.csv',
+  kalman: [
+    'new/metadata/metadata_with_vh_gfw_ais_identity_sog_cog_enriched_FINAL_kalman_estimated.csv',
+    'new/metadata/metadata_with_vv_vh_gfw_ais_identity_sog_cog_enriched_ais_position_enriched_ais_latlon_formula_filled_kalman_estimated.csv',
+  ],
+};
 
 // ── COLORS ────────────────────────────────────────────────────────────────────
 function aisColor(speed) {
@@ -722,6 +780,16 @@ function updateStats() {
   document.getElementById('bar-encounter').style.width = pct(counts.ENCOUNTER) + '%';
   document.getElementById('bar-loitering').style.width = pct(counts.LOITERING) + '%';
   document.getElementById('bar-other').style.width     = pct(counts.OTHER)     + '%';
+}
+
+function toggleLegend(forceOpen) {
+  const panel = document.getElementById('legend');
+  const btn = document.getElementById('legend-toggle');
+  if (!panel || !btn) return;
+  const open = typeof forceOpen === 'boolean' ? forceOpen : panel.hidden;
+  panel.hidden = !open;
+  btn.classList.toggle('active', open);
+  btn.setAttribute('aria-expanded', String(open));
 }
 
 function setStatsMode(m) {
@@ -823,6 +891,473 @@ function updateLegend(m) {
       <div class="leg-row"><span class="leg-dot" style="background:var(--orange)"></span><span class="leg-label">Encounter</span></div>
       <div class="leg-row"><span class="leg-dot" style="background:var(--yellow)"></span><span class="leg-label">Loitering</span></div>`;
   }
+  appendLocalKalmanLegend();
+}
+
+function appendLocalKalmanLegend() {
+  const el = document.getElementById('legend');
+  if (!el || !localKalmanVisible) return;
+  el.insertAdjacentHTML('beforeend', `
+    <div style="border-top:1px solid var(--border);margin-top:12px;padding-top:12px"></div>
+    <span class="leg-title">AIS + Kalman Lokal</span>
+    <div class="leg-row"><span style="width:26px;border-top:3px dashed #00b7ff;display:inline-block"></span><span class="leg-label">AIS raw</span></div>
+    <div class="leg-row"><span style="width:26px;border-top:3px solid #ffd21a;display:inline-block"></span><span class="leg-label">Kalman</span></div>
+    <div class="leg-row"><span class="leg-dot" style="background:transparent;border:2px solid #ff2d2d"></span><span class="leg-label">SAR target</span></div>
+    <div class="leg-row"><span class="leg-dot" style="background:#e3901a;border:2px solid #e3901a"></span><span class="leg-label">Go dark candidate</span></div>
+    <div class="leg-row"><span class="leg-dot" style="background:#f85149;border:2px solid #f85149"></span><span class="leg-label">Spoofing candidate</span></div>
+    <div class="leg-row"><span class="leg-dot" style="background:#a371f7;border:2px solid #a371f7"></span><span class="leg-label">Transshipment candidate</span></div>`);
+}
+
+function validLatLon(p) {
+  return p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lon)) &&
+    Math.abs(Number(p.lat)) <= 90 && Math.abs(Number(p.lon)) <= 180;
+}
+
+function localPopup(scene, vessel) {
+  const name = vessel.name || 'Unknown vessel';
+  const gear = vessel.gear || 'UNKNOWN_GEAR';
+  const event = vessel.event || 'scene target';
+  const prob = Number.isFinite(Number(vessel.probability)) ? `<br>p=${Number(vessel.probability).toFixed(2)}` : '';
+  return `<b>${esc(name)}</b><br>MMSI: ${esc(vessel.mmsi || '—')}<br>${esc(event)} · ${esc(gear)}${prob}<br><span style="font-size:11px;color:#9ca3af">${esc(scene)}</span>`;
+}
+
+function parseDashboardCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (quoted) {
+      if (ch === '"' && next === '"') { cell += '"'; i += 1; }
+      else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n') {
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else if (ch !== '\r') cell += ch;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  if (!rows.length) return [];
+  const headers = rows.shift().map(h => h.replace(/^\uFEFF/, '').trim());
+  return rows
+    .filter(r => r.some(v => String(v || '').trim() !== ''))
+    .map(r => Object.fromEntries(headers.map((h, i) => [h, r[i] ?? ''])));
+}
+
+async function loadCsvRows(path) {
+  try {
+    const r = await fetch(encodeURI(path), { cache: 'no-store' });
+    if (!r.ok) throw new Error(`${r.status} ${path}`);
+    return parseDashboardCsv(await r.text());
+  } catch (err) {
+    console.warn('[dashboard integration] CSV tidak tersedia:', path, err);
+    return [];
+  }
+}
+
+async function ensureIntegrationRows() {
+  if (integrationRowsLoaded) return;
+  if (!integrationLoadPromise) {
+    integrationLoadPromise = (async () => {
+      const candidatePromise = loadCsvRows(INTEGRATION_DATA_FILES.candidates);
+      const summaryPromise = loadCsvRows(INTEGRATION_DATA_FILES.summary);
+      const trajectoryPromise = loadCsvRows(INTEGRATION_DATA_FILES.trajectory);
+      const examplePromise = loadCsvRows(INTEGRATION_DATA_FILES.example25);
+      const kalmanPromises = INTEGRATION_DATA_FILES.kalman.map(path => loadCsvRows(path));
+      const [candidates, summaryRows, trajectoryRows, exampleRows, ...kalmanSets] =
+        await Promise.all([candidatePromise, summaryPromise, trajectoryPromise, examplePromise, ...kalmanPromises]);
+      integrationCandidates = candidates || [];
+      integrationSummaryRows = summaryRows || [];
+      integrationTrajectoryRows = trajectoryRows || [];
+      integrationExampleRows = exampleRows || [];
+      integrationKalmanRows = kalmanSets.flat();
+      integrationRowsLoaded = true;
+    })();
+  }
+  await integrationLoadPromise;
+}
+
+function normId(v) {
+  const s = String(v ?? '').trim();
+  return s.replace(/\.0$/, '');
+}
+
+function sameScene(a, b) {
+  if (!a || !b) return false;
+  const x = String(a).trim();
+  const y = String(b).trim();
+  return x === y || x.includes(y) || y.includes(x);
+}
+
+function rowScore(row) {
+  const n = Number(row?.score);
+  return Number.isFinite(n) ? n : -1;
+}
+
+function pick(row, names, fallback = '') {
+  for (const name of names) {
+    const value = row?.[name];
+    if (value != null && String(value).trim() !== '') return value;
+  }
+  return fallback;
+}
+
+function pickCoord(row, names, fallback = '') {
+  const value = pick(row, names, fallback);
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(6) : (value || '');
+}
+
+function displayValue(value, suffix = '') {
+  if (value == null || String(value).trim() === '') return '-';
+  const s = String(value).trim();
+  return suffix ? `${esc(s)} ${suffix}` : esc(s);
+}
+
+function findCandidateRow(sceneName, mmsi) {
+  const id = normId(mmsi);
+  const matches = integrationCandidates.filter(row => {
+    const mmsiMatch = id && normId(row.MMSI) === id;
+    const neighborMatch = id && normId(row.neighbor_mmsi) === id;
+    const sceneMatch = sceneName ? sameScene(row.scene, sceneName) : true;
+    return sceneMatch && (mmsiMatch || neighborMatch);
+  });
+  return matches.sort((a, b) => rowScore(b) - rowScore(a))[0] || null;
+}
+
+function findKalmanRow(sceneName, mmsi) {
+  const id = normId(mmsi);
+  const matches = integrationKalmanRows.filter(row => {
+    const mmsiMatch = id && normId(row.MMSI) === id;
+    const sceneMatch = sceneName ? sameScene(row.scene, sceneName) : true;
+    return sceneMatch && mmsiMatch;
+  });
+  return matches[0] || null;
+}
+
+function findLocalTrack(sceneName, mmsi) {
+  const id = normId(mmsi);
+  for (const scene of localKalmanData?.scenes || []) {
+    if (sceneName && !sameScene(scene.scene, sceneName)) continue;
+    for (const track of scene.tracks || []) {
+      if (normId(track.mmsi) === id) return track;
+    }
+  }
+  for (const scene of localKalmanData?.scenes || []) {
+    for (const track of scene.tracks || []) {
+      if (normId(track.mmsi) === id) return track;
+    }
+  }
+  return null;
+}
+
+function integrationImageItems(candidate, sceneName) {
+  const items = [];
+  const seen = new Set();
+  const add = (label, src) => {
+    if (!src) return;
+    let clean = String(src).trim().replace(/\\/g, '/');
+    if (!clean || seen.has(clean)) return;
+    seen.add(clean);
+    items.push({ label, src: clean });
+  };
+  const patchFields = [
+    'patch_rgb_vv_actual_file',
+    'patch_rgb_vh_actual_file',
+    'patch_uint8_vv_actual_file',
+    'patch_uint8_vh_actual_file',
+  ];
+  for (const field of patchFields) {
+    const value = candidate?.[field];
+    if (!value) continue;
+    const src = String(value).includes('/') || String(value).includes('\\')
+      ? value
+      : `new/Patch_RGB/${value}`;
+    add(field.replace(/_/g, ' '), src);
+  }
+  if (sceneName) {
+    add('scene map', `KAPAL YG TERDETEKSI/SENTINEL1_SCENE_MAPS/${sceneName}_vv_scene_map.png`);
+    add('detection kalman map', `KAPAL YG TERDETEKSI/SENTINEL1_SCENE_MAPS/${sceneName}_vv_detection_kalman.png`);
+  }
+  return items.slice(0, 3);
+}
+
+function renderImageItems(items) {
+  if (!items.length) return '<div class="sb-note">Patch SAR atau gambar scene tidak tersedia.</div>';
+  return items.map(item => `
+    <div class="sar-img-wrap">
+      <div class="sar-img-title">${esc(item.label)}</div>
+      <img class="sar-img" src="${esc(encodeURI(item.src))}" alt="${esc(item.label)}"
+        onerror="this.closest('.sar-img-wrap').style.display='none'">
+    </div>`).join('');
+}
+
+function rowHtml(label, value, mono = false) {
+  return `<div class="sb-row"><span class="sb-key">${esc(label)}</span><span class="sb-val${mono ? ' mono' : ''}">${value}</span></div>`;
+}
+
+function renderIntegrationPanel(sceneName, vessel, candidate, kalman) {
+  const mmsi = pick(candidate, ['MMSI'], pick(kalman, ['MMSI'], vessel?.mmsi || ''));
+  const title = pick(candidate, ['Name', 'gfw_name'], pick(kalman, ['Name', 'gfw_name'], vessel?.name || `MMSI: ${mmsi || '-'}`));
+  const shipType = pick(candidate, ['Ship_Type', 'gfw_shiptype'], pick(kalman, ['Ship_Type', 'gfw_shiptype'], vessel?.category || vessel?.gear || ''));
+  const sceneTime = pick(candidate, ['scene_time_utc'], pick(kalman, ['kalman_scene_timestamp_utc', 'sog_cog_scene_timestamp_utc', 'AIS_update_datetime'], ''));
+  const candidateType = pick(candidate, ['candidate_type'], '');
+  const badge = candidateType || 'integrasi';
+
+  const aisLat = pickCoord(candidate, ['AIS_Latitude'], pickCoord(kalman, ['AIS_Latitude'], vessel?.ais?.lat));
+  const aisLon = pickCoord(candidate, ['AIS_Longitude'], pickCoord(kalman, ['AIS_Longitude'], vessel?.ais?.lon));
+  const sarLat = pickCoord(candidate, ['Center_latitude'], pickCoord(kalman, ['Center_latitude'], vessel?.sar?.lat));
+  const sarLon = pickCoord(candidate, ['Center_longitude'], pickCoord(kalman, ['Center_longitude'], vessel?.sar?.lon));
+  const kalLat = pickCoord(kalman, ['kalman_est_lat'], pickCoord(candidate, ['kalman_est_lat'], vessel?.kalman?.lat));
+  const kalLon = pickCoord(kalman, ['kalman_est_lon'], pickCoord(candidate, ['kalman_est_lon'], vessel?.kalman?.lon));
+  const focusLat = Number(sarLat || kalLat || aisLat);
+  const focusLon = Number(sarLon || kalLon || aisLon);
+  sidebarFocusLatLng = Number.isFinite(focusLat) && Number.isFinite(focusLon) ? [focusLat, focusLon] : null;
+
+  document.getElementById('sidebar-title').textContent = title || 'Detail Kapal';
+  document.getElementById('sidebar-sub').textContent = sceneName ? `Scene: ${sceneName}` : 'Integrasi AIS-SAR';
+
+  // Panel ini menampilkan hasil integrasi AIS-SAR: identitas kapal, posisi AIS,
+  // target kapal SAR, estimasi Kalman, kandidat aktivitas, patch SAR, dan trajectory.
+  document.getElementById('sidebar-body').innerHTML = `
+    <div class="sb-section">
+      <div class="sb-section-title">
+        INTEGRASI AIS-SAR
+        <span class="sb-section-badge" style="background:#4493f822;color:#4493f8;border:1px solid #4493f844">${esc(badge)}</span>
+      </div>
+      ${rowHtml('MMSI', displayValue(mmsi), true)}
+      ${rowHtml('Jenis kapal', displayValue(shipType))}
+      ${rowHtml('Waktu pengamatan', displayValue(sceneTime))}
+    </div>
+    <div class="sb-section">
+      <div class="sb-section-title">POSISI AIS DAN SAR</div>
+      ${rowHtml('Latitude AIS', displayValue(aisLat), true)}
+      ${rowHtml('Longitude AIS', displayValue(aisLon), true)}
+      ${rowHtml('Latitude SAR', displayValue(sarLat), true)}
+      ${rowHtml('Longitude SAR', displayValue(sarLon), true)}
+      ${rowHtml('Latitude Kalman', displayValue(kalLat), true)}
+      ${rowHtml('Longitude Kalman', displayValue(kalLon), true)}
+    </div>
+    <div class="sb-section">
+      <div class="sb-section-title">GERAK DAN MATCHING</div>
+      ${rowHtml('SOG', displayValue(pick(candidate, ['Sog'], pick(kalman, ['Sog', 'kalman_est_sog'], '')), 'kn'))}
+      ${rowHtml('COG', displayValue(pick(candidate, ['Cog'], pick(kalman, ['Cog', 'kalman_est_cog'], '')), 'deg'))}
+      ${rowHtml('Jarak SAR-AIS', displayValue(pick(candidate, ['sar_ais_distance_km'], ''), 'km'))}
+      ${rowHtml('Jarak SAR-Kalman', displayValue(pick(candidate, ['sar_kalman_est_distance_km'], ''), 'km'))}
+      ${rowHtml('Selisih waktu AIS-SAR', displayValue(pick(candidate, ['AIS_update_time_gap_hours', 'ais_position_time_gap_hours'], pick(kalman, ['AIS_update_time_gap_hours', 'ais_position_time_gap_hours'], '')), 'jam'))}
+      ${rowHtml('Residual Kalman', displayValue(pick(candidate, ['kalman_pred_residual_m'], pick(kalman, ['kalman_pred_residual_m'], '')), 'm'))}
+    </div>
+    <div class="sb-section">
+      <div class="sb-section-title">KANDIDAT AKTIVITAS</div>
+      ${rowHtml('candidate_type', displayValue(candidateType))}
+      ${rowHtml('score', displayValue(pick(candidate, ['score'], '')))}
+      ${rowHtml('rule', displayValue(pick(candidate, ['rule'], '')))}
+      ${rowHtml('evidence', displayValue(pick(candidate, ['evidence'], '')))}
+    </div>
+    <div class="sb-section">
+      <div class="sb-section-title">PATCH / SCENE SAR</div>
+      ${renderImageItems(integrationImageItems(candidate, sceneName))}
+    </div>`;
+}
+
+function plotIntegratedTrajectory(sceneName, mmsi, fit = true) {
+  sidebarTrajLayer.clearLayers();
+  const info = document.getElementById('sb-traj-info');
+  const track = findLocalTrack(sceneName, mmsi);
+  if (!track) {
+    info.textContent = 'Trajectory AIS/Kalman tidak tersedia.';
+    return;
+  }
+  const raw = (track.raw || []).filter(validLatLon).map(p => [Number(p.lat), Number(p.lon)]);
+  const kalman = (track.kalman || []).filter(validLatLon).map(p => [Number(p.lat), Number(p.lon)]);
+  const all = [...raw, ...kalman];
+
+  if (raw.length >= 2) L.polyline(raw, { color:'#00b7ff', weight:2.5, opacity:.9, dashArray:'6 7' }).addTo(sidebarTrajLayer);
+  if (kalman.length >= 2) L.polyline(kalman, { color:'#ffd21a', weight:3, opacity:.95 }).addTo(sidebarTrajLayer);
+  if (raw.length === 1) L.circleMarker(raw[0], { radius:5, color:'#00b7ff', fillColor:'#00b7ff', fillOpacity:.9 }).bindPopup('AIS raw').addTo(sidebarTrajLayer);
+  if (kalman.length === 1) L.circleMarker(kalman[0], { radius:5, color:'#ffd21a', fillColor:'#ffd21a', fillOpacity:.9 }).bindPopup('Kalman').addTo(sidebarTrajLayer);
+
+  const addEnds = (points, color, label) => {
+    if (!points.length) return;
+    L.circleMarker(points[0], { radius:4, color, fillColor:color, fillOpacity:1 }).bindPopup(`${label} start`).addTo(sidebarTrajLayer);
+    if (points.length > 1) L.circleMarker(points[points.length - 1], { radius:4, color, fillColor:color, fillOpacity:1 }).bindPopup(`${label} end`).addTo(sidebarTrajLayer);
+  };
+  addEnds(raw, '#00b7ff', 'AIS raw');
+  addEnds(kalman, '#ffd21a', 'Kalman');
+
+  info.textContent = `AIS raw ${raw.length} titik | Kalman ${kalman.length} titik`;
+  if (fit && all.length) map.fitBounds(L.latLngBounds(all), { padding:[60, 60], maxZoom:12 });
+}
+
+function candidateColor(type) {
+  switch (String(type || '').toLowerCase()) {
+    case 'godark': return '#e3901a';
+    case 'spoofing': return '#f85149';
+    case 'transshipment': return '#a371f7';
+    default: return '#8b949e';
+  }
+}
+
+function renderIntegrationCandidateMarkers() {
+  if (!integrationRowsLoaded || !integrationCandidates.length) return;
+  const seen = new Set();
+  for (const row of integrationCandidates) {
+    const lat = Number(row.Center_latitude);
+    const lon = Number(row.Center_longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const key = `${row.scene}|${row.MMSI}|${row.candidate_type}|${lat.toFixed(5)}|${lon.toFixed(5)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const c = candidateColor(row.candidate_type);
+    const vessel = {
+      mmsi: row.MMSI,
+      name: row.Name,
+      category: row.Ship_Type || row.gfw_shiptype,
+      sar: { lat, lon },
+      ais: { lat: row.AIS_Latitude, lon: row.AIS_Longitude },
+    };
+    L.circleMarker([lat, lon], {
+      radius: 5,
+      color: c,
+      weight: 2,
+      fillColor: c,
+      fillOpacity: 0.22,
+    })
+      .bindPopup(`<b>${esc(row.candidate_type || 'candidate')}</b><br>MMSI: ${esc(row.MMSI || '-')}<br>${esc(row.scene || '')}`)
+      .on('click', () => openIntegratedSarDetail(row.scene, vessel))
+      .addTo(localKalmanLayer);
+  }
+}
+
+async function openIntegratedSarDetail(sceneName, vessel = {}) {
+  closeToolPanel();
+  sidebarKey = null;
+  trajActive = false;
+  sidebarTrajLayer.clearLayers();
+  historyLayer.clearLayers();
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-title').textContent = vessel.name || `MMSI: ${vessel.mmsi || '-'}`;
+  document.getElementById('sidebar-sub').textContent = 'Memuat integrasi AIS-SAR...';
+  document.getElementById('sidebar-body').innerHTML = '<div class="sb-loading"><span class="mini-spin"></span> Memuat data kandidat dan Kalman...</div>';
+  document.getElementById('sb-traj-info').textContent = '';
+
+  await ensureIntegrationRows();
+  const candidate = findCandidateRow(sceneName, vessel.mmsi);
+  const kalman = findKalmanRow(sceneName, vessel.mmsi);
+  renderIntegrationPanel(sceneName, vessel, candidate, kalman);
+
+  const btn = document.getElementById('sb-traj-btn');
+  btn.className = 'sb-btn';
+  btn.textContent = 'Tampilkan Trajectory';
+  btn.onclick = () => plotIntegratedTrajectory(sceneName, vessel.mmsi, true);
+  plotIntegratedTrajectory(sceneName, vessel.mmsi, false);
+}
+
+async function loadLocalKalman(opts = {}) {
+  try {
+    if (!localKalmanData) {
+      const r = await fetch('data/local_kalman_trajectories.json', { cache: 'no-store' });
+      if (!r.ok) throw new Error(`local kalman ${r.status}`);
+      localKalmanData = await r.json();
+    }
+    if (localKalmanVisible) renderLocalKalman(opts);
+    ensureIntegrationRows().then(() => {
+      if (localKalmanVisible) renderLocalKalman({ fit: false });
+    });
+  } catch (err) {
+    console.warn('[local kalman] gagal:', err);
+  }
+}
+
+function toggleLocalKalman() {
+  localKalmanVisible = !localKalmanVisible;
+  document.getElementById('btn-local-kalman')?.classList.toggle('active', localKalmanVisible);
+  localKalmanLayer.clearLayers();
+  updateLegend(mode);
+  if (localKalmanVisible) loadLocalKalman({ fit: true });
+}
+
+function renderLocalKalman(opts = {}) {
+  if (!localKalmanData?.scenes) return;
+  localKalmanLayer.clearLayers();
+  const bounds = [];
+
+  for (const scene of localKalmanData.scenes) {
+    for (const track of scene.tracks || []) {
+      const raw = (track.raw || []).filter(validLatLon).map(p => [Number(p.lat), Number(p.lon)]);
+      const kalman = (track.kalman || []).filter(validLatLon).map(p => [Number(p.lat), Number(p.lon)]);
+
+      raw.forEach(ll => bounds.push(ll));
+      kalman.forEach(ll => bounds.push(ll));
+
+      if (raw.length >= 2) {
+        L.polyline(raw, {
+          color: '#00b7ff',
+          weight: 2,
+          opacity: 0.82,
+          dashArray: '5 7',
+        }).bindPopup(`AIS raw · MMSI ${esc(track.mmsi || '—')}<br>${esc(scene.scene)}`).addTo(localKalmanLayer);
+      }
+      if (kalman.length >= 2) {
+        L.polyline(kalman, {
+          color: '#ffd21a',
+          weight: 3,
+          opacity: 0.95,
+        }).bindPopup(`Kalman · MMSI ${esc(track.mmsi || '—')}<br>${esc(scene.scene)}`).addTo(localKalmanLayer);
+      }
+      const last = kalman[kalman.length - 1] || raw[raw.length - 1];
+      if (last) {
+        L.circleMarker(last, {
+          radius: 4,
+          color: '#111827',
+          weight: 1,
+          fillColor: '#ffd21a',
+          fillOpacity: 1,
+        }).bindPopup(`Akhir trajectory · MMSI ${esc(track.mmsi || '—')}`).addTo(localKalmanLayer);
+      }
+      if (last) {
+        L.circleMarker(last, {
+          radius: 10,
+          color: 'transparent',
+          weight: 0,
+          fillColor: '#ffffff',
+          fillOpacity: 0,
+        })
+          .on('click', () => openIntegratedSarDetail(scene.scene, { mmsi: track.mmsi }))
+          .addTo(localKalmanLayer);
+      }
+    }
+
+    for (const vessel of scene.vessels || []) {
+      if (!validLatLon(vessel.sar)) continue;
+      const ll = [Number(vessel.sar.lat), Number(vessel.sar.lon)];
+      bounds.push(ll);
+      L.circleMarker(ll, {
+        radius: 6,
+        color: '#ff2d2d',
+        weight: 2,
+        fillColor: '#ff2d2d',
+        fillOpacity: 0.18,
+      }).bindPopup(localPopup(scene.scene, vessel)).addTo(localKalmanLayer);
+      L.circleMarker(ll, {
+        radius: 12,
+        color: 'transparent',
+        weight: 0,
+        fillColor: '#ffffff',
+        fillOpacity: 0,
+      })
+        .on('click', () => openIntegratedSarDetail(scene.scene, vessel))
+        .addTo(localKalmanLayer);
+    }
+  }
+  renderIntegrationCandidateMarkers();
+
+  if (opts.fit && bounds.length) {
+    try { map.fitBounds(L.latLngBounds(bounds), { padding: [60, 60], maxZoom: 8 }); } catch {}
+  }
 }
 
 // ── AIS ───────────────────────────────────────────────────────────────────────
@@ -891,7 +1426,7 @@ async function loadGfw(forceRefresh) {
       const raw = localStorage.getItem(GFW_CACHE_KEY);
       if (raw) {
         const c = JSON.parse(raw);
-        if (c?.t && Date.now()-c.t < GFW_CACHE_TTL && Array.isArray(c.events)) {
+        if (c?.t && Date.now()-c.t < GFW_CACHE_TTL && Array.isArray(c.events) && c.events.length > 0) {
           gfwEvents = c.events;
           gfwRangeLabel = c.range || gfwRangeLabel;
           c.events.forEach(ev => processMarker(ev));
@@ -938,7 +1473,7 @@ async function loadGfw(forceRefresh) {
   }, 900);
 
   try {
-    const r = await fetch(`/api/gfw/events?start_date=${start}&end_date=${end}`);
+    const r = await fetch(apiUrl(`/api/gfw/events?start_date=${start}&end_date=${end}`));
     const j = await r.json();
     if (!r.ok || j.error) console.warn('[gfw] server error:', j.error || j);
     const evs = (j.events || []).map(normalizeGfw).filter(Boolean);
@@ -1027,6 +1562,7 @@ function clearAllMarkers() {
 function openGfwDetail(key) {
   const s = ships[key]; if (!s) return;
   closeToolPanel();
+  sidebarFocusLatLng = null;
   document.getElementById('sb-traj-btn').onclick = toggleTraj;
   const d = s.data;
   if (sidebarKey && ships[sidebarKey]?.data?.source === 'gfw')
@@ -1075,7 +1611,7 @@ async function fetchVesselIdentity(mmsi, vesselId) {
   const el = document.getElementById('sb-identity'); if (!el) return;
   const query = mmsi ? String(mmsi) : vesselId; if (!query) return;
   try {
-    const r = await fetch(`/api/gfw/vessels/search?query=${encodeURIComponent(query)}&limit=1`);
+    const r = await fetch(apiUrl(`/api/gfw/vessels/search?query=${encodeURIComponent(query)}&limit=1`));
     const d = await r.json();
     const v = d.entries?.[0];
     if (!v) { el.innerHTML = '<div class="sb-section-title">IDENTITAS GFW</div><div style="padding:8px 16px;font-size:12px;color:var(--text-3)">Tidak ditemukan di database GFW.</div>'; return; }
@@ -1094,6 +1630,7 @@ async function fetchVesselIdentity(mmsi, vesselId) {
 function openSidebar(key) {
   const s = ships[key]; if (!s) return;
   closeToolPanel();
+  sidebarFocusLatLng = null;
   document.getElementById('sb-traj-btn').onclick = toggleTraj;
   sidebarKey = key; trajActive = false;
   sidebarTrajLayer.clearLayers(); historyLayer.clearLayers();
@@ -1108,12 +1645,16 @@ function closeSidebar() {
   if (sidebarKey && ships[sidebarKey]?.data?.source === 'gfw')
     ships[sidebarKey].marker.setIcon(makeGfwIcon(ships[sidebarKey].data.type, false));
   if (trajActive) showAllMarkers();
-  sidebarKey = null; trajActive = false;
+  sidebarKey = null; trajActive = false; sidebarFocusLatLng = null;
   sidebarTrajLayer.clearLayers(); historyLayer.clearLayers();
   document.getElementById('sidebar').classList.remove('open');
 }
 
 function zoomTo() {
+  if (sidebarFocusLatLng) {
+    map.setView(sidebarFocusLatLng, 12, { animate:true });
+    return;
+  }
   if (!sidebarKey || !ships[sidebarKey]) return;
   const d = ships[sidebarKey].data;
   map.setView([d.lat, d.lon], 12, { animate:true });
@@ -1285,7 +1826,7 @@ async function toggleTraj() {
   btn.className = 'sb-btn loading'; btn.textContent = 'Mengambil…'; info.textContent = '';
   try {
     const today = new Date().toISOString().slice(0,10);
-    const r = await fetch(`/api/gfw/track?vessel_id=${encodeURIComponent(s.data.vesselId)}&start_date=2012-01-01&end_date=${today}`);
+    const r = await fetch(apiUrl(`/api/gfw/track?vessel_id=${encodeURIComponent(s.data.vesselId)}&start_date=2012-01-01&end_date=${today}`));
     const j = await r.json();
     if (j.error) throw new Error(j.error);
     const track = j.track || [];
@@ -1344,7 +1885,7 @@ async function loadQueryCatalog() {
   const list = document.getElementById('query-list');
   list.textContent = 'Memuat…';
   try {
-    const r = await fetch('/api/gfwr/queries');
+    const r = await fetch(apiUrl('/api/gfwr/queries'));
     const d = await r.json();
     queryCatalogLoaded = true;
     list.innerHTML = (d.queries||[]).map(q => `
@@ -1368,7 +1909,7 @@ async function searchVessel() {
   selectedVessel=null; document.getElementById('load-track').disabled=true;
   el.innerHTML='<div style="color:var(--text-2);font-size:12px">Mencari…</div>';
   try {
-    const r=await fetch(`/api/gfw/vessels/search?query=${encodeURIComponent(q)}&limit=8`);
+    const r=await fetch(apiUrl(`/api/gfw/vessels/search?query=${encodeURIComponent(q)}&limit=8`));
     const d=await r.json(); if (d.error) throw new Error(d.error);
     if (!d.entries?.length) { el.innerHTML='<div style="color:var(--text-2);font-size:12px">Tidak ada hasil.</div>'; return; }
     window.__vr=d.entries;
@@ -1391,7 +1932,7 @@ async function loadTrack() {
   const sum=document.getElementById('track-summary');
   sum.textContent='Mengambil trajectory…';
   try {
-    const r=await fetch(`/api/gfw/track?vessel_id=${encodeURIComponent(selectedVessel.vessel_id)}&start_date=${start}&end_date=${end}`);
+    const r=await fetch(apiUrl(`/api/gfw/track?vessel_id=${encodeURIComponent(selectedVessel.vessel_id)}&start_date=${start}&end_date=${end}`));
     const d=await r.json(); if (d.error) throw new Error(d.error);
     plotTraj(d.track||[]);
     sum.textContent=`${d.count} titik · ${d.source} · ${start} → ${end}`;
@@ -1508,7 +2049,7 @@ let aiInferenceMessage = 'Memuat cache inference...';
 
 async function checkInferenceServer() {
   try {
-    const r = await fetch('/api/inference/health', { signal: AbortSignal.timeout(8000) });
+    const r = await fetch(apiUrl('/api/inference/health'), { signal: AbortSignal.timeout(8000) });
     return r.ok;
   } catch { return false; }
 }
@@ -1595,7 +2136,7 @@ async function runInference() {
     });
 
     setInferenceMessage('Menghubungi server inference…');
-    const r = await fetch(`/api/inference/gfw/stream?${params}`);
+    const r = await fetch(apiUrl(`/api/inference/gfw/stream?${params}`));
     if (!r.ok) {
       const err = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }));
       throw new Error(err.detail || JSON.stringify(err));
@@ -1653,7 +2194,7 @@ async function syncInferenceResults() {
 
   try {
     if (!aiResults.length) setInferenceMessage('Mengambil hasil inference terbaru dari backend...');
-    const r = await fetch('/api/inference/batch/latest');
+    const r = await fetch(apiUrl('/api/inference/batch/latest'));
     if (!r.ok) {
       const err = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }));
       throw new Error(err.detail || JSON.stringify(err));
@@ -1784,6 +2325,8 @@ function plotAiMarkers(vessels) {
     if (dark)  popup += `<div class="popup-row"><span>Go Dark</span><b style="color:${darkColor(dark.pred_label)}">${esc(dark.pred_label)}</b></div>`;
     popup += `<div class="popup-coord">${v.last_lat.toFixed(4)}°, ${v.last_lon.toFixed(4)}°</div>`;
     marker.bindPopup(popup, { maxWidth:220 });
+    // Dashboard final memakai marker bersih tanpa label MMSI permanen di peta.
+    marker.unbindTooltip();
 
     marker.on('click', () => focusAiVessel(i));
   });
@@ -1793,7 +2336,11 @@ function focusAiVessel(i) {
   const v = aiResults[i];
   if (!v || v.last_lat == null) return;
   map.setView([v.last_lat, v.last_lon], 10, { animate:true });
-  openAiDetail(i);
+  openIntegratedSarDetail(null, {
+    mmsi: v.mmsi,
+    name: v.name,
+    ais: { lat: v.last_lat, lon: v.last_lon },
+  });
   plotAiTrajectory(v.mmsi);
 }
 
@@ -1846,7 +2393,7 @@ function openAiDetail(i) {
 
 function openAiDetailByMmsi(mmsi) {
   const i = aiResults.findIndex(v => String(v.mmsi) === String(mmsi));
-  if (i >= 0) openAiDetail(i);
+  if (i >= 0) focusAiVessel(i);
 }
 
 function aiTrackTimeMs(ts) {
@@ -1898,6 +2445,8 @@ function plotAiTrajectory(mmsi) {
 loadInferenceCache();
 setDefaultDates();
 setStatsMode('gfw');
+appendLocalKalmanLegend();
+loadLocalKalman({ fit: true });
 loadGfw();
 startAis();
 startInferenceLoop();

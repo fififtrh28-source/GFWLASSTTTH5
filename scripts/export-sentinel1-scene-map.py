@@ -23,7 +23,7 @@ from zipfile import ZipFile
 import matplotlib.pyplot as plt
 from matplotlib import image as mpl_image
 from matplotlib.lines import Line2D
-from matplotlib.patches import Circle
+from matplotlib.patches import Circle, FancyBboxPatch
 import numpy as np
 import pandas as pd
 import rasterio
@@ -72,6 +72,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--margin-px", type=int, default=900, help="Crop margin around SAR target pixels.")
     parser.add_argument("--full-scene", action="store_true", help="Render the full SAR raster instead of cropping around targets.")
     parser.add_argument("--png-only", action="store_true", help="Write PNG outputs only; skip HTML viewers and CSV sidecars.")
+    parser.add_argument("--simple-trajectory-only", action="store_true", help="Write only a clean SAR PNG with AIS/Kalman trajectories and compact vessel labels.")
     parser.add_argument("--clean-title", default="Scene SAR tanpa bounding box - zoom bersih")
     parser.add_argument("--clean-subtitle", default="", help="Subtitle for the clean SAR-only HTML. Default includes scene/window info.")
     parser.add_argument(
@@ -368,6 +369,76 @@ def compute_window(rows: pd.DataFrame, width: int, height: int, margin_px: int, 
     right = min(width, math.ceil(xs.max() + margin_px))
     top = max(0, math.floor(ys.min() - margin_px))
     bottom = min(height, math.ceil(ys.max() + margin_px))
+    return Window(left, top, max(1, right - left), max(1, bottom - top))
+
+
+def compute_simple_trajectory_window(
+    rows: pd.DataFrame,
+    trajectories: pd.DataFrame,
+    width: int,
+    height: int,
+    margin_px: int,
+    full_scene: bool,
+) -> Window:
+    if full_scene:
+        return Window(0, 0, width, height)
+
+    focus_rows = rows[rows.apply(is_fishing_row, axis=1)].copy() if not rows.empty else rows
+    if focus_rows.empty:
+        focus_rows = rows
+
+    xs: list[float] = []
+    ys: list[float] = []
+
+    def add_xy(x: object, y: object) -> None:
+        px = to_float(x)
+        py = to_float(y)
+        if px is None or py is None:
+            return
+        if not (0 <= px <= width and 0 <= py <= height):
+            return
+        xs.append(px)
+        ys.append(py)
+
+    for _, row in focus_rows.iterrows():
+        add_xy(row.get("sar_x"), row.get("sar_y"))
+        add_xy(row.get("kalman_x"), row.get("kalman_y"))
+        add_xy(row.get("ais_x"), row.get("ais_y"))
+
+    focus_mmsi = {normalize_mmsi(v) for v in focus_rows.get("MMSI", pd.Series(dtype=object)).dropna()}
+    if not trajectories.empty and focus_mmsi:
+        for _, row in trajectories.iterrows():
+            if normalize_mmsi(row.get("MMSI")) not in focus_mmsi:
+                continue
+            add_xy(row.get("raw_x"), row.get("raw_y"))
+            add_xy(row.get("trajectory_kalman_x"), row.get("trajectory_kalman_y"))
+
+    if not xs or not ys:
+        return compute_window(rows, width, height, margin_px, full_scene)
+
+    simple_margin = max(180, min(margin_px, 520))
+    left = max(0, math.floor(min(xs) - simple_margin))
+    right = min(width, math.ceil(max(xs) + simple_margin))
+    top = max(0, math.floor(min(ys) - simple_margin))
+    bottom = min(height, math.ceil(max(ys) + simple_margin))
+
+    crop_w = right - left
+    crop_h = bottom - top
+    aspect = crop_w / max(1, crop_h)
+    if 1.0 <= aspect < 2.2:
+        target_aspect = 2.55
+        desired_h = crop_w / target_aspect
+        sar_ys = [
+            y
+            for y in focus_rows["sar_y"].map(to_float).dropna().tolist()
+            if 0 <= y <= height
+        ]
+        if sar_ys:
+            desired_h = max(desired_h, max(sar_ys) - top + 320)
+        if desired_h < crop_h:
+            bottom = min(height, math.ceil(top + desired_h))
+            if bottom >= height:
+                top = max(0, math.floor(bottom - desired_h))
     return Window(left, top, max(1, right - left), max(1, bottom - top))
 
 
@@ -1234,57 +1305,192 @@ def wrap_panel_line(text: str, width: int = 39) -> list[str]:
     return textwrap.wrap(text, width=width, break_long_words=False, replace_whitespace=False) or [text]
 
 
-def draw_detection_panel(ax, rows: pd.DataFrame, scene: str) -> None:
-    ax.set_axis_off()
-    ax.set_facecolor("#f8fafc")
-    for spine in ax.spines.values():
-        spine.set_visible(True)
-        spine.set_color("#cbd5e1")
+def ellipsize(text: object, width: int) -> str:
+    value = clean_text(text)
+    if len(value) <= width:
+        return value
+    return value[: max(0, width - 3)].rstrip() + "..."
 
-    total = len(rows)
-    fishing_count = int(rows.apply(is_fishing_row, axis=1).sum()) if total else 0
-    event_counts = rows["event_type"].fillna("unknown").astype(str).value_counts().to_dict() if total else {}
-    y = 0.98
 
-    def write(text: str, size: int = 8, weight: str = "normal", color: str = "#0f172a", dy: float = 0.026) -> None:
-        nonlocal y
-        ax.text(0.03, y, text, transform=ax.transAxes, ha="left", va="top", fontsize=size, fontweight=weight, color=color)
-        y -= dy
+def point_in_image(point: tuple[float, float] | None, img_shape: tuple[int, int], pad: float = 0) -> bool:
+    if point is None:
+        return False
+    x, y = point
+    if not (np.isfinite(x) and np.isfinite(y)):
+        return False
+    height, width = img_shape[:2]
+    return -pad <= x <= width + pad and -pad <= y <= height + pad
 
-    def section(title: str, subset: pd.DataFrame, color: str) -> None:
-        nonlocal y
-        y -= 0.012
-        write(title, size=9, weight="bold", color=color, dy=0.031)
-        if subset.empty:
-            write("Tidak ada di scene ini.", size=7.5, color="#64748b", dy=0.025)
-            return
-        for _, row in subset.head(8).iterrows():
-            prob = row.get("go_dark_probability_calibrated")
-            prob_text = "" if pd.isna(prob) else f" | p={float(prob):.2f}"
-            line = f"{vessel_display_name(row)} | {clean_text(row.get('category')) or '-'} | {vessel_gear(row)}{prob_text}"
-            for i, part in enumerate(wrap_panel_line(line)):
-                prefix = "- " if i == 0 else "  "
-                write(prefix + part, size=7.2, color="#1e293b", dy=0.022)
-        if len(subset) > 8:
-            write(f"... +{len(subset) - 8} kapal lagi", size=7.2, color="#64748b", dy=0.023)
 
-    write("RINGKASAN DETEKSI", size=11, weight="bold", dy=0.036)
-    write(scene, size=7.2, color="#475569", dy=0.047)
-    write(f"Total SAR-linked vessels: {total}", size=8, weight="bold", dy=0.027)
-    write(f"Fishing vessels: {fishing_count}", size=8, weight="bold", dy=0.027)
-    write(
-        "Event: "
-        + ", ".join(f"{key}={event_counts.get(key, 0)}" for key in ["go_dark", "spoofing", "transshipment", "normal"]),
-        size=7.4,
-        color="#334155",
-        dy=0.038,
+def event_label(event: object) -> str:
+    key = clean_text(event) or "unknown"
+    return {
+        "go_dark": "GO DARK",
+        "spoofing": "SPOOFING",
+        "transshipment": "TRANSSHIPMENT",
+        "normal": "NORMAL",
+        "unknown": "UNKNOWN",
+    }.get(key, key.upper())
+
+
+def event_color(event: object) -> str:
+    key = clean_text(event) or "unknown"
+    return EVENT_STYLES.get(key, EVENT_STYLES["unknown"])["color"]
+
+
+def probability_label(value: object) -> str:
+    prob = to_float(value)
+    return "" if prob is None else f"p={prob:.2f}"
+
+
+def styled_detection_rows(rows: pd.DataFrame) -> pd.DataFrame:
+    if rows.empty:
+        result = rows.copy()
+        result["_display_id"] = []
+        return result
+    result = rows.copy()
+    rank = {"go_dark": 0, "spoofing": 1, "transshipment": 2, "normal": 3, "unknown": 4}
+    result["_event_rank"] = result.apply(lambda row: rank.get(clean_text(row.get("event_type")) or "unknown", 4), axis=1)
+    result["_fishing_rank"] = result.apply(lambda row: 0 if is_fishing_row(row) else 1, axis=1)
+    result["_prob_rank"] = result.apply(lambda row: to_float(row.get("go_dark_probability_calibrated")) or -1.0, axis=1)
+    result["_mmsi_sort"] = result.apply(lambda row: normalize_mmsi(row.get("MMSI")), axis=1)
+    result = result.sort_values(
+        ["_event_rank", "_fishing_rank", "_prob_rank", "_mmsi_sort"],
+        ascending=[True, True, False, True],
+    ).reset_index(drop=True)
+    result["_display_id"] = [f"V{i}" for i in range(1, len(result) + 1)]
+    return result
+
+
+def draw_rounded_box(
+    ax,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    facecolor: str,
+    edgecolor: str = "#dbe3ef",
+    linewidth: float = 0.8,
+    radius: float = 0.02,
+    alpha: float = 1.0,
+) -> None:
+    ax.add_patch(
+        FancyBboxPatch(
+            (x, y),
+            w,
+            h,
+            boxstyle=f"round,pad=0.006,rounding_size={radius}",
+            transform=ax.transAxes,
+            facecolor=facecolor,
+            edgecolor=edgecolor,
+            linewidth=linewidth,
+            alpha=alpha,
+        )
     )
 
-    labels = rows["event_type"].fillna("unknown").astype(str) if total else pd.Series(dtype=str)
-    section("GO DARK", rows[labels.eq("go_dark")] if total else rows, EVENT_STYLES["go_dark"]["color"])
-    section("SPOOFING", rows[labels.eq("spoofing")] if total else rows, "#b77900")
-    section("TRANSSHIPMENT", rows[labels.eq("transshipment")] if total else rows, "#008f52")
-    section("FISHING + GEAR", rows[rows.apply(is_fishing_row, axis=1)] if total else rows, "#0f766e")
+
+def draw_detection_panel(ax, rows: pd.DataFrame, scene: str, trajectories: pd.DataFrame | None = None) -> None:
+    ax.set_axis_off()
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_facecolor("#f8fafc")
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    display_rows = styled_detection_rows(rows)
+    total = len(display_rows)
+    fishing_count = int(display_rows.apply(is_fishing_row, axis=1).sum()) if total else 0
+    event_counts = display_rows["event_type"].fillna("unknown").astype(str).value_counts().to_dict() if total else {}
+    trajectory_count = 0
+    if trajectories is not None and not trajectories.empty and "MMSI" in trajectories.columns:
+        trajectory_count = trajectories["MMSI"].map(normalize_mmsi).nunique()
+
+    draw_rounded_box(ax, 0.02, 0.02, 0.96, 0.96, "#ffffff", edgecolor="#cbd5e1", radius=0.018)
+    ax.text(0.06, 0.955, "RINGKASAN DETEKSI", transform=ax.transAxes, ha="left", va="top", fontsize=11, fontweight="bold", color="#0f172a")
+    ax.text(0.06, 0.925, ellipsize(scene, 48), transform=ax.transAxes, ha="left", va="top", fontsize=6.5, color="#64748b")
+
+    metric_y = 0.865
+    metrics = [
+        ("SAR vessels", str(total), "#eff6ff", "#1d4ed8"),
+        ("Fishing", str(fishing_count), "#ecfdf5", "#047857"),
+        ("AIS tracks", str(trajectory_count), "#fff7ed", "#c2410c"),
+    ]
+    for i, (label, value, fill, color) in enumerate(metrics):
+        x = 0.06 + i * 0.30
+        draw_rounded_box(ax, x, metric_y, 0.27, 0.065, fill, edgecolor="#dbeafe", radius=0.018)
+        ax.text(x + 0.018, metric_y + 0.044, value, transform=ax.transAxes, ha="left", va="center", fontsize=10, fontweight="bold", color=color)
+        ax.text(x + 0.018, metric_y + 0.019, label, transform=ax.transAxes, ha="left", va="center", fontsize=5.7, color="#475569")
+
+    legend_y = 0.79
+    ax.text(0.06, legend_y + 0.04, "Status deteksi", transform=ax.transAxes, ha="left", va="top", fontsize=8.2, fontweight="bold", color="#0f172a")
+    chips = [
+        ("GO DARK", "go_dark"),
+        ("SPOOFING", "spoofing"),
+        ("TRANSSHIP", "transshipment"),
+        ("NORMAL", "normal"),
+    ]
+    for i, (label, key) in enumerate(chips):
+        x = 0.06 + (i % 2) * 0.45
+        y = legend_y - (i // 2) * 0.043
+        color = event_color(key)
+        draw_rounded_box(ax, x, y, 0.39, 0.032, "#f8fafc", edgecolor="#e2e8f0", radius=0.012)
+        ax.scatter([x + 0.025], [y + 0.016], transform=ax.transAxes, s=28, c=[color], edgecolors="#111827", linewidths=0.35, zorder=4)
+        ax.text(x + 0.052, y + 0.016, f"{label}: {event_counts.get(key, 0)}", transform=ax.transAxes, ha="left", va="center", fontsize=6.5, color="#1e293b")
+
+    symbol_y = 0.695
+    ax.text(0.06, symbol_y + 0.023, "Simbol peta", transform=ax.transAxes, ha="left", va="top", fontsize=7.4, fontweight="bold", color="#0f172a")
+    ax.plot([0.06, 0.125], [symbol_y, symbol_y], transform=ax.transAxes, color="#00b7ff", linewidth=1.2, linestyle="--")
+    ax.text(0.135, symbol_y, "Raw AIS", transform=ax.transAxes, ha="left", va="center", fontsize=5.9, color="#475569")
+    ax.plot([0.355, 0.42], [symbol_y, symbol_y], transform=ax.transAxes, color="#ffd21a", linewidth=1.8)
+    ax.text(0.43, symbol_y, "Kalman", transform=ax.transAxes, ha="left", va="center", fontsize=5.9, color="#475569")
+    ax.scatter([0.68], [symbol_y], transform=ax.transAxes, s=34, facecolors="none", edgecolors="#ff1a1a", linewidths=1.0)
+    ax.text(0.705, symbol_y, "SAR target", transform=ax.transAxes, ha="left", va="center", fontsize=5.9, color="#475569")
+
+    table_top = 0.645
+    ax.text(0.06, table_top, "Kode kapal pada peta", transform=ax.transAxes, ha="left", va="top", fontsize=8.5, fontweight="bold", color="#0f172a")
+    ax.text(0.06, table_top - 0.025, "V# di citra cocok dengan daftar di bawah.", transform=ax.transAxes, ha="left", va="top", fontsize=6.2, color="#64748b")
+
+    max_rows = min(total, 4)
+    row_h = 0.080 if total <= 4 else 0.070
+    y = table_top - 0.065
+    for _, row in display_rows.head(max_rows).iterrows():
+        y -= row_h
+        event = clean_text(row.get("event_type")) or "unknown"
+        color = event_color(event)
+        draw_rounded_box(ax, 0.055, y, 0.89, row_h - 0.009, "#ffffff", edgecolor="#e2e8f0", radius=0.014)
+        draw_rounded_box(ax, 0.072, y + row_h - 0.049, 0.074, 0.029, color, edgecolor=color, radius=0.01)
+        label_color = "#111827" if event == "spoofing" else "#ffffff"
+        ax.text(0.109, y + row_h - 0.034, row["_display_id"], transform=ax.transAxes, ha="center", va="center", fontsize=7.2, fontweight="bold", color=label_color)
+        ax.text(0.16, y + row_h - 0.023, ellipsize(clean_text(row.get("Name")) or "Unknown vessel", 27), transform=ax.transAxes, ha="left", va="top", fontsize=7.2, fontweight="bold", color="#0f172a")
+        mmsi = normalize_mmsi(row.get("MMSI")) or "-"
+        category = clean_text(row.get("category")) or clean_text(row.get("Ship_Type")) or "-"
+        prob = probability_label(row.get("go_dark_probability_calibrated"))
+        meta = f"MMSI {mmsi} | {event_label(event)}"
+        if prob:
+            meta += f" | {prob}"
+        ax.text(0.16, y + row_h - 0.044, ellipsize(meta, 41), transform=ax.transAxes, ha="left", va="top", fontsize=6.15, color="#475569")
+        gear = vessel_gear(row) if is_fishing_row(row) else category
+        ax.text(0.16, y + row_h - 0.062, ellipsize(f"{category} | {gear}", 42), transform=ax.transAxes, ha="left", va="top", fontsize=6.0, color="#64748b")
+
+    if total > max_rows:
+        ax.text(0.06, y - 0.018, f"+{total - max_rows} kapal lain diringkas di CSV.", transform=ax.transAxes, ha="left", va="top", fontsize=6.2, color="#64748b")
+
+    residual_y = 0.075
+    draw_rounded_box(ax, 0.055, residual_y, 0.89, 0.125, "#f8fafc", edgecolor="#e2e8f0", radius=0.014)
+    ax.text(0.075, residual_y + 0.102, "Catatan Kalman", transform=ax.transAxes, ha="left", va="top", fontsize=8, fontweight="bold", color="#0f172a")
+    summary = trajectory_residual_summary(trajectories if trajectories is not None else pd.DataFrame())
+    if summary.empty:
+        note_lines = ["Belum ada titik trajectory AIS", "untuk scene ini."]
+    else:
+        mean_max = summary["mean_m"].max()
+        max_max = summary["max_m"].max()
+        note_lines = [
+            f"Residual AIS-Kalman kecil:",
+            f"mean maks {mean_max:.1f} m, max {max_max:.1f} m.",
+            "Garis bisa tampak menumpuk bila AIS stabil.",
+        ]
+    for i, line in enumerate(note_lines[:3]):
+        ax.text(0.075, residual_y + 0.076 - i * 0.025, line, transform=ax.transAxes, ha="left", va="top", fontsize=6.35, color="#475569")
 
 
 def trajectory_residual_summary(trajectories: pd.DataFrame) -> pd.DataFrame:
@@ -1355,9 +1561,10 @@ def render_detection_kalman_png(
     scene: str,
     polarization: str,
 ) -> None:
-    fig_h = max(6.5, 11.5 * image.shape[0] / image.shape[1])
-    fig = plt.figure(figsize=(15.8, fig_h), dpi=180, facecolor="white")
-    gs = fig.add_gridspec(1, 2, width_ratios=[4.9, 1.45], wspace=0.055)
+    display_rows = styled_detection_rows(rows)
+    fig_h = max(7.2, 12.0 * image.shape[0] / image.shape[1])
+    fig = plt.figure(figsize=(16.2, fig_h), dpi=180, facecolor="#f8fafc")
+    gs = fig.add_gridspec(1, 2, width_ratios=[4.75, 1.45], left=0.035, right=0.985, top=0.875, bottom=0.07, wspace=0.045)
     ax = fig.add_subplot(gs[0, 0])
     panel = fig.add_subplot(gs[0, 1])
 
@@ -1365,6 +1572,18 @@ def render_detection_kalman_png(
     add_geo_ticks(ax, transformer, window, scale, image.shape)
     add_scale_bar(ax, transformer, window, scale, image.shape)
     add_north_arrow(ax, transformer, window, scale, image.shape)
+    ax.text(
+        0.012,
+        0.985,
+        "Red rings = SAR targets | V# = vessel code in right panel",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=7.2,
+        color="#f8fafc",
+        bbox={"boxstyle": "round,pad=0.28", "facecolor": "#020617", "edgecolor": "none", "alpha": 0.58},
+        zorder=25,
+    )
 
     drew_ais_pings = False
     drew_raw_ais = False
@@ -1375,8 +1594,8 @@ def render_detection_kalman_png(
             group = group.sort_values("trajectory_time", na_position="last")
             raw_pts = local_points(group, "raw_x", "raw_y", window, scale)
             kalman_pts = local_points(group, "trajectory_kalman_x", "trajectory_kalman_y", window, scale)
-            raw_valid = [(x, y) for x, y in raw_pts if np.isfinite(x) and np.isfinite(y)]
-            kalman_valid = [(x, y) for x, y in kalman_pts if np.isfinite(x) and np.isfinite(y)]
+            raw_valid = [(x, y) for x, y in raw_pts if point_in_image((x, y), image.shape)]
+            kalman_valid = [(x, y) for x, y in kalman_pts if point_in_image((x, y), image.shape)]
 
             if len(raw_valid) >= 2:
                 xs, ys = zip(*raw_valid)
@@ -1398,77 +1617,174 @@ def render_detection_kalman_png(
             for raw, kalman in zip(raw_pts, kalman_pts):
                 rx, ry = raw
                 kx, ky = kalman
-                if not all(np.isfinite(v) for v in [rx, ry, kx, ky]):
+                if not point_in_image((rx, ry), image.shape) or not point_in_image((kx, ky), image.shape):
                     continue
                 residual_px = math.hypot(rx - kx, ry - ky)
-                if residual_px < 0.35:
+                if residual_px < 1.0:
                     continue
                 ax.plot([rx, kx], [ry, ky], color="#ffffff", linewidth=1.05, alpha=0.75, zorder=6)
                 ax.plot([rx, kx], [ry, ky], color="#a855f7", linewidth=0.7, alpha=0.9, zorder=7)
                 drew_residual = True
 
-    for _, row in rows.iterrows():
+    label_offsets = [(12, -14), (12, 18), (-42, -14), (-42, 18), (18, -32), (-48, 32), (18, 32), (-48, -32)]
+    for idx, row in display_rows.iterrows():
         sar = local_point(row, "sar_x", "sar_y", window, scale)
         kalman = local_point(row, "kalman_x", "kalman_y", window, scale)
         ais = local_point(row, "ais_x", "ais_y", window, scale)
-        p = kalman or ais or sar
+        p = kalman if point_in_image(kalman, image.shape) else ais if point_in_image(ais, image.shape) else None
         event = clean_text(row.get("event_type")) or "unknown"
-        style = EVENT_STYLES.get(event, EVENT_STYLES["unknown"])
-        color = style["color"]
+        color = event_color(event)
 
-        if sar:
+        if point_in_image(sar, image.shape):
             ax.add_patch(Circle(sar, radius=9, fill=False, edgecolor="#ff1a1a", linewidth=1.35, zorder=7))
-        if sar and p and p != sar:
+            ax.scatter([sar[0]], [sar[1]], s=10, c="#ffffff", edgecolors="#ff1a1a", linewidths=0.55, zorder=8)
+            dx, dy = label_offsets[idx % len(label_offsets)]
+            if sar[0] + dx < 8:
+                dx = 12
+            if sar[0] + dx > image.shape[1] - 42:
+                dx = -42
+            if sar[1] + dy < 8:
+                dy = 18
+            if sar[1] + dy > image.shape[0] - 20:
+                dy = -18
+            label_color = "#111827" if event == "spoofing" else "#ffffff"
+            ax.text(
+                sar[0] + dx,
+                sar[1] + dy,
+                row["_display_id"],
+                fontsize=6.3,
+                fontweight="bold",
+                color=label_color,
+                ha="center",
+                va="center",
+                zorder=12,
+                bbox={"boxstyle": "round,pad=0.2", "facecolor": color, "edgecolor": "white", "linewidth": 0.55, "alpha": 0.95},
+            )
+        if point_in_image(sar, image.shape) and p and p != sar:
             ax.plot([p[0], sar[0]], [p[1], sar[1]], color="white", linewidth=1.25, alpha=0.72, zorder=6)
             ax.plot([p[0], sar[0]], [p[1], sar[1]], color=color, linewidth=0.85, alpha=0.92, zorder=7)
         if p:
             ax.scatter([p[0]], [p[1]], s=24, c=[color], edgecolors="black", linewidths=0.45, zorder=8)
-        if sar and is_fishing_row(row):
-            label = f"{normalize_mmsi(row.get('MMSI'))}\n{vessel_gear(row)}"
-            ax.text(
-                sar[0] + 10,
-                sar[1] - 10,
-                label,
-                fontsize=5.8,
-                color="white",
-                ha="left",
-                va="top",
-                zorder=9,
-                bbox={"boxstyle": "round,pad=0.18", "facecolor": "black", "edgecolor": "none", "alpha": 0.55},
-            )
 
-    handles = [
-        Line2D([0], [0], marker="o", color="none", markerfacecolor="none", markeredgecolor="#ff1a1a", markersize=7, label="SAR targets"),
-        Line2D([0], [0], color="#ff6b6b", linewidth=1.1, label="AIS/Kalman to SAR lines"),
-        Line2D([0], [0], color=EVENT_STYLES["go_dark"]["color"], marker="o", linestyle="none", markeredgecolor="black", markersize=6, label="GoDark"),
-        Line2D([0], [0], color=EVENT_STYLES["spoofing"]["color"], marker="o", linestyle="none", markeredgecolor="black", markersize=6, label="Spoofing"),
-        Line2D([0], [0], color=EVENT_STYLES["transshipment"]["color"], marker="o", linestyle="none", markeredgecolor="black", markersize=6, label="Transshipment"),
-    ]
-    if drew_kalman:
-        handles.append(Line2D([0], [0], color="#ffd21a", linewidth=1.8, label="Kalman trajectory"))
-    if drew_raw_ais:
-        handles.append(Line2D([0], [0], color="#00b7ff", linewidth=1.2, linestyle="--", label="Raw AIS trajectory"))
-    if drew_ais_pings:
-        handles.append(Line2D([0], [0], marker="o", color="none", markerfacecolor="#a3e635", markeredgecolor="black", markersize=6, label="AIS pings"))
-    if drew_residual:
-        handles.append(Line2D([0], [0], color="#a855f7", linewidth=1.1, label="Raw AIS to Kalman residual"))
-    handles.append(Line2D([0], [0], marker="s", color="none", markerfacecolor="black", markeredgecolor="white", markersize=7, label="Fishing gear label"))
-    ax.legend(handles=handles, loc="lower left", framealpha=0.88, facecolor="white", edgecolor="black", fontsize=7.5)
-    draw_residual_panel(ax, trajectories)
-
-    event_counts = rows["event_type"].value_counts().to_dict() if not rows.empty else {}
-    counts_text = ", ".join(f"{k}: {v}" for k, v in event_counts.items())
-    ax.set_title(
-        f"{scene} | Sentinel-1 {polarization.upper()} | SAR detection + Kalman trajectory | {counts_text}",
-        fontsize=9.5,
-        pad=14,
+    event_counts = display_rows["event_type"].value_counts().to_dict() if not display_rows.empty else {}
+    counts_text = ", ".join(f"{event_label(k)}={v}" for k, v in event_counts.items())
+    fig.text(
+        0.035,
+        0.962,
+        "Sentinel-1 SAR Vessel Detection with AIS/Kalman Trajectory",
+        ha="left",
+        va="top",
+        fontsize=13,
+        fontweight="bold",
+        color="#0f172a",
+    )
+    fig.text(
+        0.035,
+        0.935,
+        f"{scene} | Polarization: {polarization.upper()} | {len(display_rows)} SAR-linked vessels | {counts_text}",
+        ha="left",
+        va="top",
+        fontsize=8.3,
+        color="#475569",
     )
     ax.set_xlim(0, image.shape[1])
     ax.set_ylim(image.shape[0], 0)
     ax.set_facecolor("black")
 
-    draw_detection_panel(panel, rows, scene)
-    fig.savefig(out_png, bbox_inches="tight", facecolor=fig.get_facecolor())
+    draw_detection_panel(panel, display_rows, scene, trajectories)
+    fig.savefig(out_png, bbox_inches="tight", pad_inches=0.06, facecolor=fig.get_facecolor())
+    plt.close(fig)
+
+
+def render_simple_trajectory_png(
+    out_png: Path,
+    image: np.ndarray,
+    rows: pd.DataFrame,
+    trajectories: pd.DataFrame,
+    window: Window,
+    scale: float,
+) -> None:
+    dpi = 220
+    fig_w = max(6.0, image.shape[1] / dpi)
+    fig_h = max(3.2, image.shape[0] / dpi)
+    fig = plt.figure(figsize=(fig_w, fig_h), dpi=dpi, facecolor="black")
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.imshow(image, cmap="gray", origin="upper")
+    ax.set_axis_off()
+
+    if not trajectories.empty:
+        for _, group in trajectories.groupby("MMSI", sort=False):
+            group = group.sort_values("trajectory_time", na_position="last")
+            raw_pts = local_points(group, "raw_x", "raw_y", window, scale)
+            kalman_pts = local_points(group, "trajectory_kalman_x", "trajectory_kalman_y", window, scale)
+            raw_valid = [(x, y) for x, y in raw_pts if point_in_image((x, y), image.shape, pad=3)]
+            kalman_valid = [(x, y) for x, y in kalman_pts if point_in_image((x, y), image.shape, pad=3)]
+
+            if len(raw_valid) >= 2:
+                xs, ys = zip(*raw_valid)
+                ax.plot(xs, ys, color="#00b7ff", linewidth=1.15, linestyle="--", alpha=0.78, zorder=4)
+                ax.scatter(xs, ys, s=7, c="#00b7ff", edgecolors="black", linewidths=0.18, alpha=0.85, zorder=5)
+            elif len(raw_valid) == 1:
+                ax.scatter([raw_valid[0][0]], [raw_valid[0][1]], s=12, c="#00b7ff", edgecolors="black", linewidths=0.2, zorder=5)
+
+            if len(kalman_valid) >= 2:
+                xs, ys = zip(*kalman_valid)
+                ax.plot(xs, ys, color="#ffd21a", linewidth=1.55, alpha=0.95, zorder=6)
+                ax.scatter(xs, ys, s=8, c="#ffd21a", edgecolors="black", linewidths=0.18, alpha=0.9, zorder=7)
+            elif len(kalman_valid) == 1:
+                ax.scatter([kalman_valid[0][0]], [kalman_valid[0][1]], s=14, c="#ffd21a", edgecolors="black", linewidths=0.2, zorder=7)
+
+            if len(raw_valid) >= 2:
+                xs, ys = zip(*raw_valid)
+                ax.plot(xs, ys, color="#00b7ff", linewidth=0.85, linestyle=(0, (2, 4)), alpha=0.9, zorder=7.5)
+
+    label_offsets = [(7, -8), (7, 12), (-76, -8), (-76, 12), (12, -22), (-82, 24), (12, 24), (-82, -22)]
+    target_radius = max(4.0, min(image.shape[:2]) * 0.006)
+    for idx, row in styled_detection_rows(rows).iterrows():
+        sar = local_point(row, "sar_x", "sar_y", window, scale)
+        kalman = local_point(row, "kalman_x", "kalman_y", window, scale)
+        ais = local_point(row, "ais_x", "ais_y", window, scale)
+        p = kalman if point_in_image(kalman, image.shape) else ais if point_in_image(ais, image.shape) else None
+
+        if not point_in_image(sar, image.shape):
+            continue
+
+        if p and p != sar:
+            ax.plot([p[0], sar[0]], [p[1], sar[1]], color="#ff3b30", linewidth=1.0, alpha=0.9, zorder=8)
+            ax.scatter([p[0]], [p[1]], s=18, c="#ff3b30", edgecolors="black", linewidths=0.35, zorder=9)
+
+        ax.add_patch(Circle(sar, radius=target_radius, fill=False, edgecolor="#ff1a1a", linewidth=1.15, zorder=10))
+        ax.scatter([sar[0]], [sar[1]], s=18, c="#ff1a1a", edgecolors="black", linewidths=0.35, zorder=11)
+
+        if not is_fishing_row(row):
+            continue
+
+        dx, dy = label_offsets[idx % len(label_offsets)]
+        if sar[0] + dx < 3:
+            dx = 7
+        if sar[0] + dx > image.shape[1] - 90:
+            dx = -86
+        if sar[1] + dy < 3:
+            dy = 12
+        if sar[1] + dy > image.shape[0] - 28:
+            dy = -18
+        label = f"{normalize_mmsi(row.get('MMSI'))}\n{vessel_gear(row)}"
+        ax.text(
+            sar[0] + dx,
+            sar[1] + dy,
+            label,
+            fontsize=5.6,
+            color="white",
+            ha="left",
+            va="top",
+            linespacing=0.85,
+            zorder=12,
+            bbox={"boxstyle": "round,pad=0.16", "facecolor": "black", "edgecolor": "none", "alpha": 0.62},
+        )
+
+    ax.set_xlim(0, image.shape[1])
+    ax.set_ylim(image.shape[0], 0)
+    fig.savefig(out_png, bbox_inches="tight", pad_inches=0, facecolor="black")
     plt.close(fig)
 
 
@@ -1487,7 +1803,10 @@ def render_scene(zip_path: Path, args: argparse.Namespace) -> list[Path]:
         transformer = GCPTransformer(gcps)
         rows = sar_and_ais_pixels(rows, transformer)
         trajectories = add_trajectory_pixels(trajectories, transformer)
-        window = compute_window(rows, src.width, src.height, args.margin_px, args.full_scene)
+        if args.simple_trajectory_only:
+            window = compute_simple_trajectory_window(rows, trajectories, src.width, src.height, args.margin_px, args.full_scene)
+        else:
+            window = compute_window(rows, src.width, src.height, args.margin_px, args.full_scene)
         image, scale = read_display_image(src, window, args.max_size)
 
         args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -1496,6 +1815,11 @@ def render_scene(zip_path: Path, args: argparse.Namespace) -> list[Path]:
         clean_html_path = args.output_dir / f"{scene}_{args.polarization.lower()}_clean.html"
         out_png = args.output_dir / f"{scene}_{args.polarization.lower()}_scene_map.png"
         detection_png = args.output_dir / f"{scene}_{args.polarization.lower()}_detection_kalman.png"
+        simple_trajectory_png = args.output_dir / f"{scene}_{args.polarization.lower()}_ais_kalman_simple.png"
+        if args.simple_trajectory_only:
+            render_simple_trajectory_png(simple_trajectory_png, image, rows, trajectories, window, scale)
+            return [simple_trajectory_png]
+
         outputs = [background_png, out_png, detection_png]
         mpl_image.imsave(background_png, image, cmap="gray", vmin=0, vmax=1)
         html_data = scene_html_data(rows, trajectories, window, scale, image.shape)

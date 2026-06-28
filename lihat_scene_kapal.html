@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lihat Scene Kapal</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 16px;
+      background: #111827;
+      border-bottom: 1px solid #334155;
+    }
+    h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    a {
+      color: #e5e7eb;
+      text-decoration: none;
+      border: 1px solid #475569;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 13px;
+      background: #1f2937;
+    }
+    a.primary {
+      background: #dc2626;
+      border-color: #ef4444;
+      font-weight: 700;
+    }
+    iframe {
+      display: block;
+      width: 100vw;
+      height: calc(100vh - 57px);
+      border: 0;
+      background: #000;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Scene Kapal Sentinel-1 - titik kapal aktif</h1>
+    <nav>
+      <a class="primary" href="KAPAL%20YG%20TERDETEKSI/SENTINEL1_SCENE_MAPS/S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C_vv_interactive.html" target="scene">Interactive + titik</a>
+      <a href="KAPAL%20YG%20TERDETEKSI/HASIL_TRAJECTORY_AIS_KALMAN_SIMPLE/S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C_vv_ais_kalman_simple.png" target="scene">AIS/Kalman simple</a>
+      <a href="KAPAL%20YG%20TERDETEKSI/HASIL_SCENE_KAPAL_TANPA_KETERANGAN/S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C_vv_ships_only_no_text.png" target="scene">Kapal tanpa tulisan</a>
+      <a href="KAPAL%20YG%20TERDETEKSI/HASIL_SCENE_KAPAL_TANPA_KETERANGAN/S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C_vv_sar_clean_no_annotation.png" target="scene">SAR polos</a>
+    </nav>
+  </header>
+  <iframe
+    name="scene"
+    src="KAPAL%20YG%20TERDETEKSI/SENTINEL1_SCENE_MAPS/S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C_vv_interactive.html">
+  </iframe>
+</body>
+</html>
