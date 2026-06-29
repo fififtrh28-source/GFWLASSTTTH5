@@ -8,7 +8,7 @@ Fitur ini menambahkan kanal distribusi alert Telegram tanpa mengubah logic kandi
 - `scripts/send-telegram-alert.js`: helper CLI untuk test kirim alert.
 - `.env.example`: contoh variabel `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_CHAT_ID`.
 - `index.html`: tombol `Kirim Alert Telegram` pada panel detail kandidat aktif.
-- `public/assets/its-ocean-nexus-brand.svg`: asset branding ITS + Ocean Nexus untuk header.
+- `public/assets/its-logo.svg` dan `public/assets/ocean-nexus-logo.svg`: asset branding header ITS + Ocean Nexus.
 
 ## Konfigurasi token
 

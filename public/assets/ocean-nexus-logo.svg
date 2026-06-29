@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="210" height="48" viewBox="0 0 210 48" role="img" aria-labelledby="title desc">
+  <title id="title">Ocean Nexus</title>
+  <desc id="desc">Ocean Nexus wordmark for the dashboard header.</desc>
+  <rect x="1" y="5" width="208" height="38" rx="7" fill="#f8fbff"/>
+  <rect x="1.5" y="5.5" width="207" height="37" rx="6.5" fill="none" stroke="#dbe7f5"/>
+  <g transform="translate(13 11)">
+    <text x="0" y="15" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="800" fill="#12345d">Ocean Nexus</text>
+    <text x="0" y="29" font-family="Segoe UI, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#53708f" letter-spacing=".08em">MARITIME INTELLIGENCE</text>
+  </g>
+  <path d="M156 29c7-8.2 18.7-8.2 26 0 4.8-5.3 10-6.9 16-5.7" fill="none" stroke="#2aa7d8" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M156 35c7-6.3 17.1-6.3 24.1 0 4.6-4.1 9.9-5.4 16.1-3.8" fill="none" stroke="#f6c33b" stroke-width="2" stroke-linecap="round"/>
+</svg>

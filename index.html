@@ -44,12 +44,18 @@
       z-index:900; backdrop-filter:blur(12px);
     }
     .tb-brand {
-      padding:0 14px; min-width:214px; max-width:260px;
+      padding:0 14px; min-width:230px; max-width:300px;
       color:var(--text); white-space:nowrap; border-right:1px solid var(--border);
-      height:100%; display:flex; align-items:center; gap:8px;
+      height:100%; display:flex; align-items:center; gap:10px;
     }
     .tb-brand-logo {
-      display:block; height:34px; width:auto; max-width:224px; object-fit:contain;
+      display:block; width:auto; object-fit:contain; flex-shrink:0;
+    }
+    .tb-brand-logo.its-logo {
+      height:34px;
+    }
+    .tb-brand-logo.ocean-logo {
+      height:30px; max-width:174px;
     }
     .tb-modes {
       display:flex; height:100%; border-right:1px solid var(--border);
@@ -105,8 +111,9 @@
     .tb-btn:hover { color:var(--text); background:var(--surface); }
     .tb-btn.active { color:var(--blue); }
     @media (max-width: 920px) {
-      .tb-brand { min-width:168px; max-width:180px; padding:0 8px; }
-      .tb-brand-logo { height:30px; max-width:164px; }
+      .tb-brand { min-width:178px; max-width:198px; padding:0 8px; gap:7px; }
+      .tb-brand-logo.its-logo { height:29px; }
+      .tb-brand-logo.ocean-logo { height:25px; max-width:138px; }
       .mode-btn { padding:0 10px; font-size:11px; }
       .tb-counts { display:none; }
       .tb-status { padding:0 10px; }
@@ -491,7 +498,8 @@
 <!-- TOPBAR -->
 <header id="topbar">
   <div class="tb-brand">
-    <img class="tb-brand-logo" src="/assets/its-ocean-nexus-brand.svg" alt="ITS Ocean Nexus">
+    <img class="tb-brand-logo its-logo" src="/assets/its-logo.svg" alt="ITS">
+    <img class="tb-brand-logo ocean-logo" src="/assets/ocean-nexus-logo.svg" alt="Ocean Nexus">
   </div>
   <div class="tb-modes">
     <button class="mode-btn active-gfw" id="btn-gfw" onclick="setMode('gfw')">GFW Events</button>
