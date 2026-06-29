@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="48" viewBox="0 0 300 48" role="img" aria-labelledby="title desc">
+  <title id="title">ITS Ocean Nexus</title>
+  <desc id="desc">Compact dashboard brand banner for ITS and Ocean Nexus.</desc>
+  <rect x="1" y="3" width="298" height="42" rx="7" fill="#f8fbff" opacity=".98"/>
+  <rect x="1.5" y="3.5" width="297" height="41" rx="6.5" fill="none" stroke="#dbe7f5"/>
+  <g transform="translate(12 8)">
+    <path d="M16 0 30 7.5v14.8c0 6.2-5.1 10-14 13.7C7.1 32.3 2 28.5 2 22.3V7.5L16 0Z" fill="#113f7c"/>
+    <path d="M16 4.2 25.9 9.5v11.8c0 4.6-3.3 7.6-9.9 10.5-6.6-2.9-9.9-5.9-9.9-10.5V9.5L16 4.2Z" fill="#f6c33b"/>
+    <path d="M16 7.2 23.2 11v9.4c0 3.4-2.2 5.8-7.2 8.1-5-2.3-7.2-4.7-7.2-8.1V11L16 7.2Z" fill="#113f7c"/>
+    <text x="16" y="20.5" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="8.8" font-weight="800" fill="#ffffff" letter-spacing=".3">ITS</text>
+  </g>
+  <g transform="translate(55 11)">
+    <text x="0" y="14" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="800" fill="#12345d">Ocean Nexus</text>
+    <text x="0" y="28" font-family="Segoe UI, Arial, sans-serif" font-size="8.5" font-weight="700" fill="#53708f" letter-spacing=".08em">ITS MARITIME INTELLIGENCE</text>
+  </g>
+  <path d="M246 29c7-8.2 18.7-8.2 26 0 4.8-5.3 10-6.9 16-5.7" fill="none" stroke="#2aa7d8" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M246 35c7-6.3 17.1-6.3 24.1 0 4.6-4.1 9.9-5.4 16.1-3.8" fill="none" stroke="#f6c33b" stroke-width="2" stroke-linecap="round"/>
+</svg>

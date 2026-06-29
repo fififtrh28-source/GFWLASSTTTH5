@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Samudra Aya — Pemantauan Kapal Indonesia</title>
+<title>ITS Ocean Nexus - Pemantauan Kapal Indonesia</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
@@ -44,13 +44,12 @@
       z-index:900; backdrop-filter:blur(12px);
     }
     .tb-brand {
-      padding:0 18px; font-size:13px; font-weight:700; letter-spacing:.04em;
+      padding:0 14px; min-width:214px; max-width:260px;
       color:var(--text); white-space:nowrap; border-right:1px solid var(--border);
       height:100%; display:flex; align-items:center; gap:8px;
     }
-    .tb-brand-dot {
-      width:6px; height:6px; border-radius:50%; background:var(--green);
-      flex-shrink:0;
+    .tb-brand-logo {
+      display:block; height:34px; width:auto; max-width:224px; object-fit:contain;
     }
     .tb-modes {
       display:flex; height:100%; border-right:1px solid var(--border);
@@ -105,6 +104,14 @@
     .tb-btn:first-child { border-left:none; }
     .tb-btn:hover { color:var(--text); background:var(--surface); }
     .tb-btn.active { color:var(--blue); }
+    @media (max-width: 920px) {
+      .tb-brand { min-width:168px; max-width:180px; padding:0 8px; }
+      .tb-brand-logo { height:30px; max-width:164px; }
+      .mode-btn { padding:0 10px; font-size:11px; }
+      .tb-counts { display:none; }
+      .tb-status { padding:0 10px; }
+      .tb-btn { padding:0 10px; font-size:11px; }
+    }
 
     /* ── STATS PANEL (kiri atas) ──────────────────────────────────────────── */
     #stats-panel {
@@ -310,6 +317,22 @@
     .sb-btn:hover    { border-color:var(--blue); color:var(--blue); }
     .sb-btn.traj-on  { border-color:var(--red);  color:var(--red);  background:var(--red-dim); }
     .sb-btn.loading  { opacity:.5; cursor:not-allowed; }
+    .telegram-alert-actions {
+      padding:10px 16px 12px; border-top:1px solid var(--border);
+      display:flex; flex-direction:column; gap:8px;
+    }
+    .sb-btn.telegram-alert-btn {
+      flex:none; width:100%; color:var(--green);
+      border-color:rgba(63,185,80,.35); background:var(--green-dim);
+    }
+    .sb-btn.telegram-alert-btn:hover {
+      border-color:var(--green); color:var(--green); background:rgba(63,185,80,.16);
+    }
+    .telegram-alert-status {
+      min-height:16px; font-size:11px; line-height:1.45; color:var(--text-3);
+    }
+    .telegram-alert-status.ok { color:var(--green); }
+    .telegram-alert-status.err { color:var(--red); }
 
     /* Track history list */
     .track-list { max-height:260px; overflow-y:auto; }
@@ -468,8 +491,7 @@
 <!-- TOPBAR -->
 <header id="topbar">
   <div class="tb-brand">
-    <span class="tb-brand-dot"></span>
-    SAMUDRA AYA
+    <img class="tb-brand-logo" src="/assets/its-ocean-nexus-brand.svg" alt="ITS Ocean Nexus">
   </div>
   <div class="tb-modes">
     <button class="mode-btn active-gfw" id="btn-gfw" onclick="setMode('gfw')">GFW Events</button>
@@ -654,6 +676,7 @@ let integrationSummaryRows = [];
 let integrationTrajectoryRows = [];
 let integrationExampleRows = [];
 let sidebarFocusLatLng = null;
+let currentTelegramAlert = null;
 
 const GFW_CACHE_KEY = 'gfw-events-cache-v7';
 const GFW_CACHE_TTL = 10 * 60 * 1000;
@@ -666,10 +689,124 @@ const AIS_BBOXES    = [
 
 const API_BASE =
   location.hostname === '127.0.0.1' && location.port === '8000'
-    ? 'http://127.0.0.1:5173'
+    ? 'http://127.0.0.1:5174'
     : '';
 function apiUrl(path) {
   return `${API_BASE}${path}`;
+}
+
+function normalizeTelegramCandidateType(value) {
+  const raw = String(value || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (raw === 'godark' || raw === 'go_dark') return 'go_dark';
+  if (raw.includes('spoof')) return 'spoofing';
+  if (raw.includes('transship')) return 'transshipment';
+  return raw || 'alert';
+}
+
+function telegramIndication(type) {
+  switch (normalizeTelegramCandidateType(type)) {
+    case 'go_dark':
+      return 'pola trajectory AIS menyerupai aktivitas go dark.';
+    case 'spoofing':
+      return 'pola trajectory AIS menyerupai manipulasi/spoofing posisi.';
+    case 'transshipment':
+      return 'pola jarak, waktu, dan kedekatan kapal menyerupai indikasi transshipment.';
+    default:
+      return 'pola kandidat kapal memenuhi aturan alert aktif.';
+  }
+}
+
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    if (value == null || value === '') continue;
+    const n = Number(String(value).replace('%', '').trim());
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function mapUrlForAlert(lat, lon) {
+  const latNum = firstFiniteNumber(lat);
+  const lonNum = firstFiniteNumber(lon);
+  if (latNum === null || lonNum === null) return '';
+  return `https://www.google.com/maps?q=${latNum.toFixed(6)},${lonNum.toFixed(6)}`;
+}
+
+function buildTelegramAlertPayload(sceneName, vessel, candidate, kalman) {
+  const candidateType = pick(candidate, ['candidate_type'], '');
+  if (!candidateType) return null;
+
+  const mmsi = pick(candidate, ['MMSI'], pick(kalman, ['MMSI'], vessel?.mmsi || ''));
+  const gear = pick(candidate, ['gear', 'gear_label', 'Ship_Type', 'gfw_shiptype'],
+    pick(kalman, ['gear', 'gear_label', 'Ship_Type', 'gfw_shiptype'], vessel?.gear || vessel?.category || ''));
+  const score = pick(candidate, ['score', 'probability', 'confidence'], '');
+  const aisLat = pick(candidate, ['AIS_Latitude'], pick(kalman, ['AIS_Latitude'], vessel?.ais?.lat));
+  const aisLon = pick(candidate, ['AIS_Longitude'], pick(kalman, ['AIS_Longitude'], vessel?.ais?.lon));
+  const sarLat = pick(candidate, ['Center_latitude'], pick(kalman, ['Center_latitude'], vessel?.sar?.lat));
+  const sarLon = pick(candidate, ['Center_longitude'], pick(kalman, ['Center_longitude'], vessel?.sar?.lon));
+  const kalLat = pick(kalman, ['kalman_est_lat'], pick(candidate, ['kalman_est_lat'], vessel?.kalman?.lat));
+  const kalLon = pick(kalman, ['kalman_est_lon'], pick(candidate, ['kalman_est_lon'], vessel?.kalman?.lon));
+  const lat = firstFiniteNumber(sarLat, kalLat, aisLat);
+  const lon = firstFiniteNumber(sarLon, kalLon, aisLon);
+  const type = normalizeTelegramCandidateType(candidateType);
+  const evidence = pick(candidate, ['evidence'], '');
+  const baseIndication = telegramIndication(type);
+
+  return {
+    level: 'HIGH',
+    MMSI: mmsi,
+    gear,
+    gear_probability: pick(candidate, ['gear_probability', 'gear_confidence'], ''),
+    candidate_type: type,
+    alert_type: type,
+    pred_label: type,
+    score,
+    lat: lat === null ? '' : lat,
+    lon: lon === null ? '' : lon,
+    source: pick(candidate, ['source'], sceneName ? `AIS-SAR candidate active (${sceneName})` : 'AIS-SAR candidate active'),
+    time: pick(candidate, ['scene_time_utc'], pick(kalman, ['kalman_scene_timestamp_utc', 'sog_cog_scene_timestamp_utc', 'AIS_update_datetime'], '')),
+    indication: evidence ? `${baseIndication} Evidence: ${evidence}` : baseIndication,
+    map_url: mapUrlForAlert(lat, lon),
+  };
+}
+
+function telegramActionHtml() {
+  if (!currentTelegramAlert) return '';
+  return `
+    <div class="telegram-alert-actions">
+      <button class="sb-btn telegram-alert-btn" type="button" onclick="sendTelegramAlertFromSidebar()">Kirim Alert Telegram</button>
+      <div id="telegram-alert-status" class="telegram-alert-status">Telegram siap jika token dan chat ID sudah diisi.</div>
+    </div>`;
+}
+
+function setTelegramStatus(text, cls = '') {
+  const el = document.getElementById('telegram-alert-status');
+  if (!el) return;
+  el.className = `telegram-alert-status${cls ? ` ${cls}` : ''}`;
+  el.textContent = text;
+}
+
+async function sendTelegramAlertFromSidebar() {
+  if (!currentTelegramAlert) {
+    setTelegramStatus('Tidak ada kandidat aktif untuk dikirim.', 'err');
+    return;
+  }
+  setTelegramStatus('Mengirim alert Telegram...');
+  try {
+    const response = await fetch(apiUrl('/api/telegram/alert'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(currentTelegramAlert),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+      throw new Error(data.detail || data.error || `HTTP ${response.status}`);
+    }
+    const when = data.sent_at ? new Date(data.sent_at).toLocaleString('id-ID') : new Date().toLocaleString('id-ID');
+    setTelegramStatus(`Alert berhasil dikirim (${when}).`, 'ok');
+  } catch (err) {
+    setTelegramStatus(`Gagal kirim alert: ${err?.message || err}`, 'err');
+  }
 }
 
 const INTEGRATION_DATA_FILES = {
@@ -1116,6 +1253,7 @@ function renderIntegrationPanel(sceneName, vessel, candidate, kalman) {
   const focusLat = Number(sarLat || kalLat || aisLat);
   const focusLon = Number(sarLon || kalLon || aisLon);
   sidebarFocusLatLng = Number.isFinite(focusLat) && Number.isFinite(focusLon) ? [focusLat, focusLon] : null;
+  currentTelegramAlert = buildTelegramAlertPayload(sceneName, vessel, candidate, kalman);
 
   document.getElementById('sidebar-title').textContent = title || 'Detail Kapal';
   document.getElementById('sidebar-sub').textContent = sceneName ? `Scene: ${sceneName}` : 'Integrasi AIS-SAR';
@@ -1156,6 +1294,7 @@ function renderIntegrationPanel(sceneName, vessel, candidate, kalman) {
       ${rowHtml('score', displayValue(pick(candidate, ['score'], '')))}
       ${rowHtml('rule', displayValue(pick(candidate, ['rule'], '')))}
       ${rowHtml('evidence', displayValue(pick(candidate, ['evidence'], '')))}
+      ${telegramActionHtml()}
     </div>
     <div class="sb-section">
       <div class="sb-section-title">PATCH / SCENE SAR</div>
@@ -1563,6 +1702,7 @@ function openGfwDetail(key) {
   const s = ships[key]; if (!s) return;
   closeToolPanel();
   sidebarFocusLatLng = null;
+  currentTelegramAlert = null;
   document.getElementById('sb-traj-btn').onclick = toggleTraj;
   const d = s.data;
   if (sidebarKey && ships[sidebarKey]?.data?.source === 'gfw')
@@ -1631,6 +1771,7 @@ function openSidebar(key) {
   const s = ships[key]; if (!s) return;
   closeToolPanel();
   sidebarFocusLatLng = null;
+  currentTelegramAlert = null;
   document.getElementById('sb-traj-btn').onclick = toggleTraj;
   sidebarKey = key; trajActive = false;
   sidebarTrajLayer.clearLayers(); historyLayer.clearLayers();
@@ -1645,7 +1786,7 @@ function closeSidebar() {
   if (sidebarKey && ships[sidebarKey]?.data?.source === 'gfw')
     ships[sidebarKey].marker.setIcon(makeGfwIcon(ships[sidebarKey].data.type, false));
   if (trajActive) showAllMarkers();
-  sidebarKey = null; trajActive = false; sidebarFocusLatLng = null;
+  sidebarKey = null; trajActive = false; sidebarFocusLatLng = null; currentTelegramAlert = null;
   sidebarTrajLayer.clearLayers(); historyLayer.clearLayers();
   document.getElementById('sidebar').classList.remove('open');
 }
