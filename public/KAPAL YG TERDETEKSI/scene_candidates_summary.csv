@@ -1,0 +1,4 @@
+candidate_type,count,percentage,total_candidates,candidate_column,source_file,generated_at_utc
+spoofing,304,83.29,365,candidate_type,KAPAL YG TERDETEKSI\scene_candidates_godark_spoofing_transshipment.csv,2026-06-27T12:34:17+00:00
+godark,41,11.23,365,candidate_type,KAPAL YG TERDETEKSI\scene_candidates_godark_spoofing_transshipment.csv,2026-06-27T12:34:17+00:00
+transshipment,20,5.48,365,candidate_type,KAPAL YG TERDETEKSI\scene_candidates_godark_spoofing_transshipment.csv,2026-06-27T12:34:17+00:00

@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "prepare:public-data": "node scripts/prepare-public-data.js",
+    "build": "npm run prepare:public-data && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

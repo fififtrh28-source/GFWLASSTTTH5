@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C | Sentinel-1 VV</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #667085;
+      --line: #d0d5dd;
+      --accent: #e11d48;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: #f4f6f8;
+      overflow: hidden;
+    }
+    header {
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      white-space: nowrap;
+    }
+    header h1 {
+      font-size: 15px;
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    header .hint {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .app {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      height: calc(100vh - 52px);
+    }
+    aside {
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      overflow: auto;
+      padding: 12px;
+    }
+    .section {
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+    }
+    .section h2 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      margin: 0 0 8px;
+    }
+    .layers label {
+      display: block;
+      font-size: 13px;
+      margin: 7px 0;
+      cursor: pointer;
+    }
+    .buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 6px;
+      padding: 7px 10px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    button:hover { border-color: #98a2b3; }
+    .vessel {
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      background: #fff;
+    }
+    .vessel:hover { border-color: #98a2b3; }
+    .vessel.active { outline: 2px solid #2563eb; }
+    .vessel .name {
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 11px;
+      margin: 2px 4px 0 0;
+      border: 1px solid var(--line);
+    }
+    .pill.go_dark { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+    .pill.spoofing { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+    .pill.transshipment { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+    .pill.normal { background: #f2f4f7; color: #344054; }
+    .meta { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    #viewer {
+      position: relative;
+      overflow: hidden;
+      background: #111;
+      cursor: grab;
+      user-select: none;
+    }
+    #viewer.dragging { cursor: grabbing; }
+    #stage {
+      position: absolute;
+      left: 0;
+      top: 0;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+    #sarImage {
+      display: block;
+      width: 100%;
+      height: 100%;
+      image-rendering: auto;
+    }
+    #overlay {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+    .sar-target {
+      fill: transparent;
+      stroke: #ff1f1f;
+      stroke-width: 3;
+      vector-effect: non-scaling-stroke;
+    }
+    .event-point {
+      stroke: #111;
+      stroke-width: 1.2;
+      vector-effect: non-scaling-stroke;
+      cursor: pointer;
+    }
+    .event-point.go_dark { fill: #ff2d2d; }
+    .event-point.spoofing { fill: #ffd000; }
+    .event-point.transshipment { fill: #00d47a; }
+    .event-point.normal { fill: #e5e7eb; }
+    .event-point.unknown { fill: #999; }
+    .link {
+      stroke: #ff3b3b;
+      stroke-width: 1.5;
+      vector-effect: non-scaling-stroke;
+      opacity: .8;
+    }
+    .raw-track {
+      fill: none;
+      stroke: #00b7ff;
+      stroke-width: 2.2;
+      stroke-dasharray: 8 7;
+      vector-effect: non-scaling-stroke;
+      opacity: .9;
+    }
+    .kalman-track {
+      fill: none;
+      stroke: #ffd21a;
+      stroke-width: 3;
+      vector-effect: non-scaling-stroke;
+      opacity: .95;
+    }
+    .track-dot {
+      fill: #ffd21a;
+      stroke: #111;
+      stroke-width: 1;
+      vector-effect: non-scaling-stroke;
+    }
+    #tooltip {
+      position: fixed;
+      pointer-events: none;
+      z-index: 5;
+      max-width: 280px;
+      padding: 8px 10px;
+      border-radius: 7px;
+      background: rgba(17, 24, 39, .92);
+      color: white;
+      font-size: 12px;
+      line-height: 1.45;
+      display: none;
+    }
+    .legend {
+      position: absolute;
+      right: 16px;
+      bottom: 16px;
+      background: rgba(255,255,255,.9);
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 8px 10px;
+      font-size: 12px;
+      line-height: 1.6;
+      pointer-events: none;
+    }
+    .legend span {
+      display: inline-block;
+      width: 22px;
+      height: 0;
+      border-top: 3px solid currentColor;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    .legend .dash { border-top-style: dashed; color: #00b7ff; }
+    .legend .yellow { color: #ffd21a; }
+    .legend .red { color: #ff2d2d; }
+    .legend .ring {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #ff1f1f;
+      border-radius: 999px;
+      border-top-style: solid;
+    }
+    .legend .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border-top: 0;
+      margin-left: 1px;
+      margin-right: 9px;
+    }
+    .legend .go-dark { background: #ff2d2d; }
+    .legend .normal-dot { background: #e5e7eb; border: 1px solid #111; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C | Sentinel-1 VV</h1>
+    <div class="hint">Scroll untuk zoom, drag untuk geser, klik kapal untuk detail.</div>
+  </header>
+  <div class="app">
+    <aside>
+      <div class="section">
+        <h2>Controls</h2>
+        <div class="buttons">
+          <button id="fitBtn">Fit</button>
+          <button id="zoomInBtn">Zoom +</button>
+          <button id="zoomOutBtn">Zoom -</button>
+        </div>
+      </div>
+      <div class="section layers">
+        <h2>Layers</h2>
+        <label><input type="checkbox" data-layer="sar" checked> SAR targets</label>
+<label><input type="checkbox" data-layer="links" checked> AIS/Kalman to SAR</label>
+<label><input type="checkbox" data-layer="ais" checked> AIS trajectory</label>
+<label><input type="checkbox" data-layer="kalman" checked> Kalman trajectory</label>
+<label><input type="checkbox" data-layer="go_dark" checked> GoDark vessels</label>
+<label><input type="checkbox" data-layer="spoofing" checked> Spoofing vessels</label>
+<label><input type="checkbox" data-layer="transshipment" checked> Transshipment vessels</label>
+<label><input type="checkbox" data-layer="normal" checked> Not detected vessels</label>
+      </div>
+      <div class="section">
+        <h2>Selected</h2>
+        <div id="details" class="meta">Klik kapal di peta atau daftar.</div>
+      </div>
+      <div>
+        <h2>Vessels</h2>
+        <div id="vesselList"></div>
+      </div>
+    </aside>
+    <main id="viewer">
+      <div id="stage">
+        <img id="sarImage" src="S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C_vv_sar_background.png" alt="Sentinel-1 SAR background">
+        <svg id="overlay"></svg>
+      </div>
+      <div class="legend">
+        <div><span class="ring"></span>SAR targets</div>
+        <div><span class="dot go-dark"></span>GoDark</div>
+        <div><span class="dot normal-dot"></span>Not detected</div>
+        <div><span class="yellow"></span>Kalman trajectory</div>
+        <div><span class="dash"></span>AIS trajectory</div>
+        <div><span class="red"></span>AIS/Kalman to SAR</div>
+      </div>
+    </main>
+  </div>
+  <div id="tooltip"></div>
+  <script>
+    const DATA = {"width": 1800, "height": 1032, "vessels": [{"mmsi": "525600095", "name": "BANDAR NELAYAN 108", "category": "Fishing", "event": "go_dark", "eventLabel": "GoDark", "probability": 0.358317, "gear": "DRIFTING_LONGLINES", "sar": {"x": 305.777, "y": 286.365}, "ais": {"x": 317.368, "y": 270.777}, "kalman": {"x": 317.368, "y": 270.777}, "sarLat": -9.08367611687131, "sarLon": 115.3027331228616, "aisLat": -9.09, "aisLon": 115.30999755859376}, {"mmsi": "525800332", "name": "MILLENIUM JAYA 118", "category": "Fishing", "event": "go_dark", "eventLabel": "GoDark", "probability": 0.558728, "gear": "UNKNOWN_FISHING_GEAR", "sar": {"x": 892.254, "y": 166.037}, "ais": {"x": 745.902, "y": 236.862}, "kalman": {"x": 745.902, "y": 236.862}, "sarLat": -9.078520026826924, "sarLon": 115.59812040154743, "aisLat": -9.06, "aisLon": 115.5199966430664}, {"mmsi": "525600097", "name": "BANDAR NELAYAN 288", "category": "Fishing", "event": "normal", "eventLabel": "Not detected", "probability": 0.333361, "gear": "DRIFTING_LONGLINES", "sar": {"x": 165.925, "y": 221.586}, "ais": null, "kalman": null, "sarLat": -9.13032311587397, "sarLon": 115.24236940144866, "aisLat": -15.3, "aisLon": 109.69999695}, {"mmsi": "525005141", "name": "KMP NUSA BHAKTI", "category": "Passenger", "event": "normal", "eventLabel": "Not detected", "probability": 0.315291, "gear": "", "sar": {"x": 1633.949, "y": 865.854}, "ais": null, "kalman": null, "sarLat": -8.65779189249597, "sarLon": 115.87897493338411, "aisLat": -9.548276186085369, "aisLon": 115.74405670166016}], "tracks": [{"mmsi": "525600095", "raw": [[334.109, 748.223], [317.445, 661.782], [309.142, 600.32], [249.632, 503.459], [209.033, 412.12], [193.176, 379.333], [206.189, 364.166], [224.154, 354.053], [252.314, 336.724], [274.516, 319.179], [291.597, 302.155], [305.591, 286.794], [316.775, 270.549], [328.47, 252.36], [317.313, 253.489], [303.308, 255.03], [142.22, 272.23], [114.944, 272.531], [136.621, 227.761], [149.154, 200.301], [160.567, 178.155], [170.727, 161.452], [183.727, 145.601]], "kalman": [[334.109, 748.223], [317.418, 661.806], [309.159, 600.321], [249.714, 503.398], [208.95, 412.185], [193.346, 379.239], [206.001, 364.036], [224.312, 354.198], [252.216, 336.667], [274.617, 319.221], [291.492, 302.112], [305.659, 286.834], [316.73, 270.448], [328.522, 252.45], [317.865, 253.149], [303.154, 254.994], [142.245, 272.213], [115.283, 272.385], [136.576, 227.762], [149.225, 200.297], [160.497, 178.163], [170.8, 161.475], [183.681, 145.602]], "pointCount": 23, "start": "2026-02-15 06:01:13+00:00", "end": "2026-02-15 16:10:41+00:00"}, {"mmsi": "525600097", "raw": [[267.098, 635.248], [213.158, 464.778], [85.182, 300.196], [94.901, 283.049], [111.222, 272.276], [137.831, 251.64], [152.493, 238.005], [175.308, 212.336], [189.944, 190.698], [203.243, 165.524], [211.477, 142.241], [223.747, 100.762], [239.111, 56.679], [246.744, 39.909], [256.013, 22.465]], "kalman": [[267.098, 635.248], [213.152, 464.805], [85.198, 300.191], [94.741, 282.976], [111.461, 272.335], [137.75, 251.622], [152.581, 238.054], [175.296, 212.326], [189.992, 190.717], [203.199, 165.502], [211.526, 142.272], [223.727, 100.749], [239.138, 56.696], [246.727, 39.909], [256.052, 22.459]], "pointCount": 15, "start": "2026-02-15 06:30:11+00:00", "end": "2026-02-15 16:20:42+00:00"}]};
+    const COLORS = {
+      go_dark: "#ff2d2d",
+      spoofing: "#ffd000",
+      transshipment: "#00d47a",
+      normal: "#e5e7eb",
+      unknown: "#999999"
+    };
+    const viewer = document.getElementById("viewer");
+    const stage = document.getElementById("stage");
+    const overlay = document.getElementById("overlay");
+    const tooltip = document.getElementById("tooltip");
+    const details = document.getElementById("details");
+    const vesselList = document.getElementById("vesselList");
+    let scale = 1, tx = 0, ty = 0, dragging = false, lastX = 0, lastY = 0, activeMmsi = null;
+    const layerState = Object.fromEntries([...document.querySelectorAll("[data-layer]")].map(i => [i.dataset.layer, i.checked]));
+
+    stage.style.width = DATA.width + "px";
+    stage.style.height = DATA.height + "px";
+    overlay.setAttribute("viewBox", `0 0 ${DATA.width} ${DATA.height}`);
+
+    function applyTransform() {
+      stage.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    }
+
+    function fit() {
+      const pad = 24;
+      const sx = (viewer.clientWidth - pad * 2) / DATA.width;
+      const sy = (viewer.clientHeight - pad * 2) / DATA.height;
+      scale = Math.min(sx, sy);
+      tx = (viewer.clientWidth - DATA.width * scale) / 2;
+      ty = (viewer.clientHeight - DATA.height * scale) / 2;
+      applyTransform();
+    }
+
+    function zoomAt(cx, cy, factor) {
+      const beforeX = (cx - tx) / scale;
+      const beforeY = (cy - ty) / scale;
+      scale = Math.max(0.08, Math.min(12, scale * factor));
+      tx = cx - beforeX * scale;
+      ty = cy - beforeY * scale;
+      applyTransform();
+    }
+
+    function vesselTitle(v) {
+      return `${v.name || "Unnamed vessel"} (${v.mmsi || "no MMSI"})`;
+    }
+
+    function vesselHtml(v) {
+      const prob = v.probability == null ? "" : `<br>GoDark probability: ${v.probability}`;
+      return `<strong>${vesselTitle(v)}</strong><br>Event: ${v.eventLabel}<br>Category: ${v.category || "-"}<br>Gear: ${v.gear || "-"}${prob}<br>SAR: ${v.sarLat?.toFixed?.(5) ?? "-"}, ${v.sarLon?.toFixed?.(5) ?? "-"}`;
+    }
+
+    function polyline(points) {
+      return points.map(p => p.join(",")).join(" ");
+    }
+
+    function setActive(mmsi) {
+      activeMmsi = mmsi;
+      const v = DATA.vessels.find(item => item.mmsi === mmsi);
+      details.innerHTML = v ? vesselHtml(v) : "Klik kapal di peta atau daftar.";
+      [...document.querySelectorAll(".vessel")].forEach(el => el.classList.toggle("active", el.dataset.mmsi === mmsi));
+      [...overlay.querySelectorAll(".event-point")].forEach(el => {
+        el.setAttribute("r", el.dataset.mmsi === mmsi ? 8 : 5);
+      });
+      if (v?.sar) {
+        tx = viewer.clientWidth / 2 - v.sar.x * scale;
+        ty = viewer.clientHeight / 2 - v.sar.y * scale;
+        applyTransform();
+      }
+    }
+
+    function addSvg(tag, attrs, parent=overlay) {
+      const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+      parent.appendChild(el);
+      return el;
+    }
+
+    function render() {
+      overlay.innerHTML = "";
+      const tracksGroup = addSvg("g", {id: "tracks"});
+      for (const track of DATA.tracks) {
+        if (layerState.ais && track.raw.length >= 2) {
+          addSvg("polyline", {points: polyline(track.raw), class: "raw-track", "data-mmsi": track.mmsi}, tracksGroup);
+        }
+        if (layerState.kalman && track.kalman.length >= 2) {
+          addSvg("polyline", {points: polyline(track.kalman), class: "kalman-track", "data-mmsi": track.mmsi}, tracksGroup);
+          const last = track.kalman[track.kalman.length - 1];
+          addSvg("circle", {cx: last[0], cy: last[1], r: 4, class: "track-dot", "data-mmsi": track.mmsi}, tracksGroup);
+        }
+      }
+
+      for (const v of DATA.vessels) {
+        const showEvent = layerState[v.event] ?? layerState.normal ?? true;
+        if (!showEvent) continue;
+        if (layerState.links && v.sar && (v.kalman || v.ais)) {
+          const p = v.kalman || v.ais;
+          addSvg("line", {x1: p.x, y1: p.y, x2: v.sar.x, y2: v.sar.y, class: "link"});
+        }
+        if (layerState.sar && v.sar) {
+          addSvg("circle", {cx: v.sar.x, cy: v.sar.y, r: 9, class: "sar-target"});
+        }
+        const p = v.kalman || v.ais || v.sar;
+        if (p) {
+          const c = addSvg("circle", {cx: p.x, cy: p.y, r: activeMmsi === v.mmsi ? 8 : 5, class: `event-point ${v.event}`, "data-mmsi": v.mmsi});
+          c.addEventListener("click", evt => { evt.stopPropagation(); setActive(v.mmsi); });
+          c.addEventListener("mousemove", evt => {
+            tooltip.innerHTML = vesselHtml(v);
+            tooltip.style.display = "block";
+            tooltip.style.left = (evt.clientX + 14) + "px";
+            tooltip.style.top = (evt.clientY + 14) + "px";
+          });
+          c.addEventListener("mouseleave", () => tooltip.style.display = "none");
+        }
+      }
+    }
+
+    function renderList() {
+      vesselList.innerHTML = "";
+      DATA.vessels.forEach(v => {
+        const el = document.createElement("div");
+        el.className = "vessel";
+        el.dataset.mmsi = v.mmsi;
+        const prob = v.probability == null ? "" : ` &middot; p=${v.probability}`;
+        el.innerHTML = `<div class="name">${vesselTitle(v)}</div><span class="pill ${v.event}">${v.eventLabel}</span><div class="meta">${v.category || "-"} &middot; ${v.gear || "unknown gear"}${prob}</div>`;
+        el.addEventListener("click", () => setActive(v.mmsi));
+        vesselList.appendChild(el);
+      });
+    }
+
+    viewer.addEventListener("wheel", evt => {
+      evt.preventDefault();
+      zoomAt(evt.clientX - viewer.getBoundingClientRect().left, evt.clientY - viewer.getBoundingClientRect().top, evt.deltaY < 0 ? 1.18 : 0.85);
+    }, {passive: false});
+    viewer.addEventListener("mousedown", evt => { dragging = true; lastX = evt.clientX; lastY = evt.clientY; viewer.classList.add("dragging"); });
+    window.addEventListener("mousemove", evt => {
+      if (!dragging) return;
+      tx += evt.clientX - lastX;
+      ty += evt.clientY - lastY;
+      lastX = evt.clientX;
+      lastY = evt.clientY;
+      applyTransform();
+    });
+    window.addEventListener("mouseup", () => { dragging = false; viewer.classList.remove("dragging"); });
+    document.getElementById("fitBtn").addEventListener("click", fit);
+    document.getElementById("zoomInBtn").addEventListener("click", () => zoomAt(viewer.clientWidth / 2, viewer.clientHeight / 2, 1.25));
+    document.getElementById("zoomOutBtn").addEventListener("click", () => zoomAt(viewer.clientWidth / 2, viewer.clientHeight / 2, 0.8));
+    document.querySelectorAll("[data-layer]").forEach(input => {
+      input.addEventListener("change", () => { layerState[input.dataset.layer] = input.checked; render(); });
+    });
+    window.addEventListener("resize", fit);
+    renderList();
+    render();
+    fit();
+  </script>
+</body>
+</html>

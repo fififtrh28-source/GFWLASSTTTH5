@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scene SAR tanpa bounding box - zoom bersih</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: #000;
+      color: #e5e7eb;
+      font-family: Arial, Helvetica, sans-serif;
+      overflow: hidden;
+    }
+    .topbar {
+      height: 46px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 3px;
+      padding: 0 12px;
+      background: #11161c;
+      border-bottom: 1px solid #171d25;
+    }
+    .topbar h1 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.1;
+      color: #f3f4f6;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .topbar p {
+      margin: 0;
+      font-size: 11px;
+      line-height: 1.1;
+      color: #9ca3af;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #viewer {
+      position: relative;
+      width: 100vw;
+      height: calc(100vh - 46px);
+      overflow: hidden;
+      background: #000;
+      cursor: grab;
+      user-select: none;
+    }
+    #viewer.dragging { cursor: grabbing; }
+    #stage {
+      position: absolute;
+      left: 0;
+      top: 0;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+    #stage img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      image-rendering: auto;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Scene SAR tanpa bounding box - zoom bersih</h1>
+    <p>S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C | window pixel x=6633:16397, y=7190:12787 | tanpa overlay</p>
+  </header>
+  <main id="viewer" title="Scroll untuk zoom, drag untuk geser, double click untuk reset.">
+    <div id="stage">
+      <img src="S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C_vv_sar_background.png" alt="Sentinel-1 SAR tanpa overlay">
+    </div>
+  </main>
+  <script>
+    const DATA = {"width": 1800, "height": 1032, "image": "S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C_vv_sar_background.png", "scene": "S1A_IW_GRDH_1SDV_20260215T104128_20260215T104157_063228_07F03A_350C", "polarization": "VV"};
+    const viewer = document.getElementById("viewer");
+    const stage = document.getElementById("stage");
+    let scale = 1;
+    let tx = 0;
+    let ty = 0;
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    stage.style.width = DATA.width + "px";
+    stage.style.height = DATA.height + "px";
+
+    function applyTransform() {
+      stage.style.transform = "translate(" + tx + "px, " + ty + "px) scale(" + scale + ")";
+    }
+
+    function fit() {
+      const sx = viewer.clientWidth / DATA.width;
+      const sy = viewer.clientHeight / DATA.height;
+      scale = Math.min(sx, sy);
+      tx = (viewer.clientWidth - DATA.width * scale) / 2;
+      ty = (viewer.clientHeight - DATA.height * scale) / 2;
+      applyTransform();
+    }
+
+    function zoomAt(cx, cy, factor) {
+      const beforeX = (cx - tx) / scale;
+      const beforeY = (cy - ty) / scale;
+      scale = Math.max(0.05, Math.min(18, scale * factor));
+      tx = cx - beforeX * scale;
+      ty = cy - beforeY * scale;
+      applyTransform();
+    }
+
+    viewer.addEventListener("wheel", evt => {
+      evt.preventDefault();
+      const rect = viewer.getBoundingClientRect();
+      zoomAt(evt.clientX - rect.left, evt.clientY - rect.top, evt.deltaY < 0 ? 1.18 : 0.85);
+    }, { passive: false });
+
+    viewer.addEventListener("mousedown", evt => {
+      dragging = true;
+      lastX = evt.clientX;
+      lastY = evt.clientY;
+      viewer.classList.add("dragging");
+    });
+
+    window.addEventListener("mousemove", evt => {
+      if (!dragging) return;
+      tx += evt.clientX - lastX;
+      ty += evt.clientY - lastY;
+      lastX = evt.clientX;
+      lastY = evt.clientY;
+      applyTransform();
+    });
+
+    window.addEventListener("mouseup", () => {
+      dragging = false;
+      viewer.classList.remove("dragging");
+    });
+
+    viewer.addEventListener("dblclick", fit);
+    window.addEventListener("resize", fit);
+    fit();
+  </script>
+</body>
+</html>

@@ -65,3 +65,12 @@ new/XML/
 # Python caches
 __pycache__/
 *.pyc
+
+# Public deployment bundle generated from selected local dashboard data.
+# These files are intentionally tracked so Vercel/GitHub deploys can render
+# the dashboard without depending on ignored local folders.
+!public/
+!public/**
+!public/**/*.csv
+!public/**/*.json
+!public/**/*.png
