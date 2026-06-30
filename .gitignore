@@ -40,6 +40,8 @@ dist-ssr
 .local-dev/
 Dataset_Test_Enriched/
 Inference/
+!api/inference/
+!api/inference/**
 KAPAL YG TERDETEKSI/
 RUNYOLO_FINALBISMILLAH/
 new/metadata/

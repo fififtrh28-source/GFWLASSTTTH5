@@ -2248,7 +2248,19 @@ function renderInferenceState() {
   plotAiMarkers(aiResults);
 }
 
+function normalizeInferencePayload(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { vessels: [], raw_track: [], warning: 'Backend belum mengirim data inference terbaru.' };
+  }
+  return {
+    ...data,
+    vessels: Array.isArray(data.vessels) ? data.vessels : [],
+    raw_track: Array.isArray(data.raw_track) ? data.raw_track : [],
+  };
+}
+
 function mergeInferenceData(data) {
+  data = normalizeInferencePayload(data);
   const byMmsi = new Map(aiResults.map(v => [String(v.mmsi), v]));
   (data.vessels || []).forEach(v => {
     if (v?.mmsi != null) byMmsi.set(String(v.mmsi), v);
@@ -2349,11 +2361,14 @@ async function syncInferenceResults() {
       throw new Error(err.detail || JSON.stringify(err));
     }
 
-    const data = await r.json();
+    const data = normalizeInferencePayload(await r.json().catch(() => null));
     mergeInferenceData(data);
     saveInferenceCache();
     renderInferenceState();
-    setInferenceMessage(`${data.vessels?.length || 0} kapal dari backend - total tampil ${aiResults.length} kapal.`);
+    const message = data.warning && !data.vessels.length
+      ? `${data.warning} Total tampil ${aiResults.length} kapal.`
+      : `${data.vessels.length} kapal dari backend - total tampil ${aiResults.length} kapal.`;
+    setInferenceMessage(message);
     saveInferenceCache();
   } catch (err) {
     setInferenceMessage('Error: ' + err.message);
