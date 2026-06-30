@@ -2489,8 +2489,7 @@ function plotAiMarkers(vessels) {
     if (dark)  popup += `<div class="popup-row"><span>Go Dark</span><b style="color:${darkColor(dark.pred_label)}">${esc(dark.pred_label)}</b></div>`;
     popup += `<div class="popup-coord">${v.last_lat.toFixed(4)}°, ${v.last_lon.toFixed(4)}°</div>`;
     marker.bindPopup(popup, { maxWidth:220 });
-    // Dashboard final memakai marker bersih tanpa label MMSI permanen di peta.
-    marker.unbindTooltip();
+    // Keep the permanent label visible so the deployed dashboard matches the report screenshot.
 
     marker.on('click', () => focusAiVessel(i));
   });
