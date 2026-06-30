@@ -8,6 +8,10 @@ const ROOT = process.cwd();
 const FILES = [
   "KAPAL YG TERDETEKSI/scene_candidates_godark_spoofing_transshipment.csv",
   "KAPAL YG TERDETEKSI/scene_candidates_summary.csv",
+  "KAPAL YG TERDETEKSI/final_h5_alert_predictions.csv",
+  "KAPAL YG TERDETEKSI/final_h5_alert_summary.csv",
+  "KAPAL YG TERDETEKSI/h5_vs_rule_based_comparison.csv",
+  "KAPAL YG TERDETEKSI/h5_inference_report.json",
   "new/metadata/ais_trajectory_points_raw_vs_kalman.csv",
   "Dataset_Test_Enriched/Dataset_Test_Enriched_EEZ_Indonesia/trajectory_outputs_25seq_windows_reference_style/ais_kalman_25seq_per_mmsi.csv",
   "new/metadata/metadata_with_vh_gfw_ais_identity_sog_cog_enriched_FINAL_kalman_estimated.csv",
