@@ -2339,6 +2339,12 @@ function saveInferenceCache() {
   } catch {}
 }
 
+function hasPlottableAiVessels(vessels) {
+  return Array.isArray(vessels) && vessels.some(v =>
+    Number.isFinite(Number(v?.last_lat)) && Number.isFinite(Number(v?.last_lon))
+  );
+}
+
 function loadInferenceCache() {
   try {
     const raw = localStorage.getItem(AI_CACHE_KEY);
@@ -2353,9 +2359,14 @@ function loadInferenceCache() {
 
 function renderInferenceState() {
   setInferenceMessage(aiInferenceMessage);
+  if (hasPlottableAiVessels(aiResults)) {
+    plotAiMarkers(aiResults);
+  } else {
+    aiLayer.clearLayers();
+  }
+
   const resultEls = [...document.querySelectorAll('#ai-results')];
   if (!resultEls.length) return;
-
   if (!aiResults.length) {
     const emptyHtml = '<div style="color:var(--text-3);font-size:12px">Inference background sedang berjalan. Hasil akan muncul otomatis.</div>';
     resultEls.forEach(el => { el.innerHTML = emptyHtml; });
@@ -2363,7 +2374,6 @@ function renderInferenceState() {
   }
 
   renderAiResults(aiResults);
-  plotAiMarkers(aiResults);
 }
 
 function normalizeInferencePayload(data) {
@@ -2480,7 +2490,7 @@ async function syncInferenceResults() {
     }
 
     const data = normalizeInferencePayload(await r.json().catch(() => null));
-    if (!data.vessels.length && !aiResults.length) {
+    if (!hasPlottableAiVessels(data.vessels) && !hasPlottableAiVessels(aiResults)) {
       const fallbackVessels = await loadStaticH5InferenceFallback();
       if (fallbackVessels.length) {
         data.vessels = fallbackVessels;
@@ -2497,7 +2507,7 @@ async function syncInferenceResults() {
     saveInferenceCache();
   } catch (err) {
     console.error('[inference-sync]', err);
-    if (!aiResults.length) {
+    if (!hasPlottableAiVessels(aiResults)) {
       const fallbackVessels = await loadStaticH5InferenceFallback().catch(() => []);
       if (fallbackVessels.length) {
         mergeInferenceData({ vessels: fallbackVessels, raw_track: [] });
