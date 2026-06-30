@@ -683,6 +683,7 @@ let integrationKalmanRows = [];
 let integrationSummaryRows = [];
 let integrationTrajectoryRows = [];
 let integrationExampleRows = [];
+let h5PredictionRows = [];
 let sidebarFocusLatLng = null;
 let currentTelegramAlert = null;
 
@@ -822,6 +823,7 @@ const INTEGRATION_DATA_FILES = {
   // It does not call FINAL_4_PIPELINE_MODELS.h5 or any other H5 model.
   candidates: 'KAPAL YG TERDETEKSI/scene_candidates_godark_spoofing_transshipment.csv',
   summary: 'KAPAL YG TERDETEKSI/scene_candidates_summary.csv',
+  h5Predictions: 'KAPAL YG TERDETEKSI/final_h5_alert_predictions.csv',
   trajectory: 'new/metadata/ais_trajectory_points_raw_vs_kalman.csv',
   example25: 'Dataset_Test_Enriched/Dataset_Test_Enriched_EEZ_Indonesia/trajectory_outputs_25seq_windows_reference_style/ais_kalman_25seq_per_mmsi.csv',
   kalman: [
@@ -1109,13 +1111,15 @@ async function ensureIntegrationRows() {
     integrationLoadPromise = (async () => {
       const candidatePromise = loadCsvRows(INTEGRATION_DATA_FILES.candidates);
       const summaryPromise = loadCsvRows(INTEGRATION_DATA_FILES.summary);
+      const h5PredictionPromise = loadCsvRows(INTEGRATION_DATA_FILES.h5Predictions);
       const trajectoryPromise = loadCsvRows(INTEGRATION_DATA_FILES.trajectory);
       const examplePromise = loadCsvRows(INTEGRATION_DATA_FILES.example25);
       const kalmanPromises = INTEGRATION_DATA_FILES.kalman.map(path => loadCsvRows(path));
-      const [candidates, summaryRows, trajectoryRows, exampleRows, ...kalmanSets] =
-        await Promise.all([candidatePromise, summaryPromise, trajectoryPromise, examplePromise, ...kalmanPromises]);
+      const [candidates, summaryRows, h5Rows, trajectoryRows, exampleRows, ...kalmanSets] =
+        await Promise.all([candidatePromise, summaryPromise, h5PredictionPromise, trajectoryPromise, examplePromise, ...kalmanPromises]);
       integrationCandidates = candidates || [];
       integrationSummaryRows = summaryRows || [];
+      h5PredictionRows = h5Rows || [];
       integrationTrajectoryRows = trajectoryRows || [];
       integrationExampleRows = exampleRows || [];
       integrationKalmanRows = kalmanSets.flat();
@@ -1181,6 +1185,120 @@ function findKalmanRow(sceneName, mmsi) {
     return sceneMatch && mmsiMatch;
   });
   return matches[0] || null;
+}
+
+const STATIC_H5_AI_LIMIT = 200;
+const VALID_GEAR_LABELS = new Set([
+  'drifting_longlines',
+  'purse_seines',
+  'fixed_gear',
+  'trawlers',
+  'set_longlines',
+  'set_gillnets',
+  'trollers',
+  'pots_and_traps',
+  'squid_jig',
+  'other_fishing',
+  'fishing',
+]);
+
+function firstFiniteFrom(row, names) {
+  for (const name of names) {
+    const value = row?.[name];
+    if (value == null || String(value).trim() === '') continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function h5Score(row) {
+  const n = firstFiniteFrom(row, ['score', 'go_dark_probability']);
+  return n == null ? -1 : n;
+}
+
+function normalizeGearLabel(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  const clean = raw.replace(/[\s-]+/g, '_');
+  const aliases = {
+    drift_longline: 'drifting_longlines',
+    drift_longlines: 'drifting_longlines',
+    drifting_longline: 'drifting_longlines',
+    purse_seine: 'purse_seines',
+    purse_seines: 'purse_seines',
+    fixed_gears: 'fixed_gear',
+    trawler: 'trawlers',
+  };
+  const normalized = aliases[clean] || clean;
+  return VALID_GEAR_LABELS.has(normalized) ? normalized : '';
+}
+
+function firstValidGear(row) {
+  const fields = ['gear', 'gear_type', 'gear_label', 'predicted_gear', 'gear_prediction', 'gfw_gear', 'vessel_gear', 'gfw_geartype'];
+  for (const field of fields) {
+    const normalized = normalizeGearLabel(row?.[field]);
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function findH5MetadataRow(prediction) {
+  const id = normId(prediction?.MMSI);
+  const sceneId = prediction?.scene_id || prediction?.scene || '';
+  if (!id) return null;
+  return integrationKalmanRows.find(row => normId(row.MMSI) === id && sameScene(row.scene, sceneId)) ||
+    integrationKalmanRows.find(row => normId(row.MMSI) === id) ||
+    null;
+}
+
+function buildStaticH5Vessel(prediction) {
+  if (normalizeTelegramCandidateType(pick(prediction, ['alert_type', 'pred_label'], '')) !== 'go_dark') return null;
+  const meta = findH5MetadataRow(prediction);
+  if (!meta) return null;
+
+  const lat = firstFiniteFrom(meta, ['kalman_est_lat', 'AIS_Latitude', 'Center_latitude']);
+  const lon = firstFiniteFrom(meta, ['kalman_est_lon', 'AIS_Longitude', 'Center_longitude']);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+  const score = Math.max(0, h5Score(prediction));
+  const gear = firstValidGear(meta);
+  const tasks = {
+    godark: {
+      pred_label: 'go_dark',
+      confidence: score,
+    },
+  };
+  if (gear) {
+    tasks.gear = {
+      pred_label: gear,
+      confidence: 1,
+    };
+  }
+
+  return {
+    source: 'h5_static',
+    mmsi: normId(prediction.MMSI),
+    name: pick(meta, ['Name', 'gfw_name'], ''),
+    last_lat: lat,
+    last_lon: lon,
+    scene_id: prediction.scene_id,
+    tasks,
+  };
+}
+
+async function loadStaticH5InferenceFallback() {
+  await ensureIntegrationRows();
+  const byMmsi = new Map();
+  h5PredictionRows
+    .filter(row => normalizeTelegramCandidateType(pick(row, ['alert_type', 'pred_label'], '')) === 'go_dark')
+    .sort((a, b) => h5Score(b) - h5Score(a))
+    .forEach(row => {
+      const vessel = buildStaticH5Vessel(row);
+      if (!vessel || byMmsi.has(String(vessel.mmsi))) return;
+      byMmsi.set(String(vessel.mmsi), vessel);
+    });
+  return [...byMmsi.values()].slice(0, STATIC_H5_AI_LIMIT);
 }
 
 function findLocalTrack(sceneName, mmsi) {
@@ -2362,6 +2480,13 @@ async function syncInferenceResults() {
     }
 
     const data = normalizeInferencePayload(await r.json().catch(() => null));
+    if (!data.vessels.length && !aiResults.length) {
+      const fallbackVessels = await loadStaticH5InferenceFallback();
+      if (fallbackVessels.length) {
+        data.vessels = fallbackVessels;
+        data.warning = `Backend inference kosong; memakai ${fallbackVessels.length} kandidat go_dark H5 dari CSV publik.`;
+      }
+    }
     mergeInferenceData(data);
     saveInferenceCache();
     renderInferenceState();
@@ -2371,8 +2496,18 @@ async function syncInferenceResults() {
     setInferenceMessage(message);
     saveInferenceCache();
   } catch (err) {
-    setInferenceMessage('Error: ' + err.message);
     console.error('[inference-sync]', err);
+    if (!aiResults.length) {
+      const fallbackVessels = await loadStaticH5InferenceFallback().catch(() => []);
+      if (fallbackVessels.length) {
+        mergeInferenceData({ vessels: fallbackVessels, raw_track: [] });
+        saveInferenceCache();
+        renderInferenceState();
+        setInferenceMessage(`Backend inference gagal; memakai ${fallbackVessels.length} kandidat go_dark H5 dari CSV publik.`);
+        return;
+      }
+    }
+    setInferenceMessage('Error: ' + err.message);
   } finally {
     inferenceInFlight = false;
   }
